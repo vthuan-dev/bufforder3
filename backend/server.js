@@ -33,6 +33,9 @@ const STATIC_ALLOWED = new Set([
   'https://www.ashford.click',
   'https://ashfordorder.com',
   'https://www.ashfordorder.com',
+  'https://ashfordorders.com',
+  'https://www.ashfordorders.com',
+  'https://api.ashfordorders.com',
   'https://ashfsdorder.com',
   'https://www.ashfsdorder.com'
 ]);

@@ -24,16 +24,8 @@ export function RegisterPage({ onRegister, onSwitchToLogin }: RegisterPageProps)
 
   // Client-side validation to improve UX (backend also validates)
   const VALID_INVITE_CODES = new Set([
-    '570318',
-    '942615',
-    '803247',
-    '169437',
-    '285074',
-    '637890',
-    '451908',
-    '726349',
-    '394176',
-    '820564',
+    '686868',
+    '888888',
   ]);
 
   const handleRegister = async () => {
