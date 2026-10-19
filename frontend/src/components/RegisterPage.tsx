@@ -26,6 +26,9 @@ export function RegisterPage({ onRegister, onSwitchToLogin }: RegisterPageProps)
   const VALID_INVITE_CODES = new Set([
     '686868',
     '888888',
+    '528194',
+    '739461',
+    '816352',
   ]);
 
   const handleRegister = async () => {

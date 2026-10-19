@@ -8,6 +8,9 @@ module.exports = {
   INVITE_CODE: process.env.INVITE_CODE || '888888',
   INVITE_CODES: [
     '686868',
-    '888888'
+    '888888',
+    '528194',
+    '739461',
+    '816352'
   ]
 };
