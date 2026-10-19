@@ -1,0 +1,990 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Search, Send, Paperclip, MoreVertical, User, Clock, Trash2, Ban, MessageSquare, X, MapPin, Smile, ArrowLeft } from "lucide-react";
+import { Badge } from "../ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import EmojiPicker, { EmojiClickData, Theme, EmojiStyle } from 'emoji-picker-react';
+import api from "../../services/api";
+import { getAdminSocket } from "./adminSocket";
+import { io, Socket } from "socket.io-client";
+import { toast } from "sonner";
+
+interface ChatThread {
+  id: string;
+  user: { name: string; email: string; avatar?: string; isChatBlocked?: boolean };
+  lastMessage: string;
+  timestamp: string;
+  unread: number;
+  status: "online" | "offline";
+  userIp?: string;
+  userLatitude?: number;
+  userLongitude?: number;
+  userGpsLocation?: string;
+  userGpsUpdatedAt?: string;
+  lastSeenAt?: string | null;
+}
+
+interface Message {
+  id: number;
+  sender: "user" | "admin";
+  text: string;
+  imageUrl?: string;
+  timestamp: string;
+  isRead: boolean;
+}
+
+// Quick reply templates - will be translated in component
+const QUICK_REPLIES_EN = [
+  "Hello! How can I help you today?",
+  "Thank you for contacting us. Please wait a moment.",
+  "Your order is being processed. We'll update you soon.",
+  "Could you please provide more details?",
+  "Is there anything else I can help you with?",
+  "Thank you for your patience!",
+  "Your issue has been resolved. Please check now.",
+  "We apologize for the inconvenience.",
+];
+
+const API_BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:5000';
+
+export function AdminChatPage() {
+  const { t } = useTranslation('adminChat');
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [selectedThread, setSelectedThread] = useState<ChatThread | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [messageInput, setMessageInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typingHeader, setTypingHeader] = useState<boolean>(false);
+  const [partnerDraftText, setPartnerDraftText] = useState<string>("");
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isUserBlocked, setIsUserBlocked] = useState(false);
+  const [userLocation, setUserLocation] = useState<string>("");
+  const socketRef = useRef<Socket | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const selectedThreadIdRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
+  const soundEnabledRef = useRef<boolean>(false);
+  const prevUnreadRef = useRef<number>(0);
+  const partnerTypingRef = useRef<boolean>(false);
+  const typingTimerRef = useRef<number | null>(null);
+  const isWindowFocusedRef = useRef<boolean>(typeof document !== 'undefined' ? !document.hidden : true);
+  const locationCacheRef = useRef<Record<string, string>>({});
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
+
+  const handleCancelImage = () => {
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setSelectedImage(null);
+    setImagePreviewUrl('');
+  };
+
+  // Fetch location from IP via backend proxy
+  const fetchLocationFromIp = async (ip: string) => {
+    // ❌ DISABLED: IP-based location is inaccurate
+    // We now rely on GPS location only
+    // IP geolocation shows ISP gateway location, not user's actual location
+    return;
+    
+    /* OLD CODE - DISABLED
+    if (!ip || ip === '::1' || ip === '127.0.0.1') {
+      setUserLocation('Local');
+      return;
+    }
+    // Check cache first
+    if (locationCacheRef.current[ip]) {
+      setUserLocation(locationCacheRef.current[ip]);
+      return;
+    }
+    try {
+      // Use backend proxy to avoid CORS
+      const res = await api.getIpLocation(ip);
+      const data = res?.data;
+      if (data?.status === 'success') {
+        const location = [data.city, data.regionName, data.country].filter(Boolean).join(', ');
+        locationCacheRef.current[ip] = location;
+        setUserLocation(location);
+      } else {
+        setUserLocation('Unknown');
+      }
+    } catch (err) {
+      console.error('Failed to fetch location:', err);
+      setUserLocation('Unknown');
+    }
+    */
+  };
+
+  // Fetch location when selected thread changes
+  useEffect(() => {
+    if (selectedThread?.userIp) {
+      fetchLocationFromIp(selectedThread.userIp);
+    } else {
+      setUserLocation('');
+    }
+  }, [selectedThread?.userIp]);
+
+  // Restore sound preference
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('admin:soundEnabled');
+      setSoundEnabled(v === '1');
+    } catch { }
+  }, []);
+
+  // Auto-unlock audio on first interaction if previously enabled
+  useEffect(() => {
+    const onFirstInteract = async () => {
+      try {
+        const prefEnabled = (() => { try { return localStorage.getItem('admin:soundEnabled') === '1'; } catch { return false; } })();
+        if (!prefEnabled && !soundEnabled) return;
+        if (!soundEnabled) setSoundEnabled(true);
+        const a = audioRef.current;
+        if (a) {
+          try { a.currentTime = 0; a.volume = 1; await a.play(); } catch { }
+        }
+      } catch { }
+    };
+    const opts: any = { once: true };
+    window.addEventListener('pointerdown', onFirstInteract, opts);
+    window.addEventListener('keydown', onFirstInteract, opts);
+    window.addEventListener('touchstart', onFirstInteract, opts);
+    const onFocus = () => { isWindowFocusedRef.current = true; };
+    const onBlur = () => { isWindowFocusedRef.current = false; };
+    const onVis = () => { isWindowFocusedRef.current = !document.hidden; };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pointerdown', onFirstInteract as any);
+      window.removeEventListener('keydown', onFirstInteract as any);
+      window.removeEventListener('touchstart', onFirstInteract as any);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [soundEnabled]);
+
+  // Keep ref in sync to avoid stale closures
+  useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
+
+  const playNotificationSound = async () => {
+    try {
+      // Multiple fallback strategies for playing sound
+      const playStrategies = [
+        // Strategy 1: Use existing audio element
+        async () => {
+          const a = audioRef.current;
+          if (a) {
+            a.currentTime = 0;
+            a.volume = 1;
+            await a.play();
+            return true;
+          }
+          return false;
+        },
+        // Strategy 2: Create new audio element
+        async () => {
+          const audio = new Audio(new URL('../../assets/sound/noti.mp3', import.meta.url).toString());
+          audio.volume = 1;
+          await audio.play();
+          return true;
+        },
+        // Strategy 3: Use Web Audio API
+        async () => {
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+          }
+          const response = await fetch(new URL('../../assets/sound/noti.mp3', import.meta.url).toString());
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioContext.destination);
+          source.start(0);
+          return true;
+        }
+      ];
+
+      // Try each strategy until one succeeds
+      for (const strategy of playStrategies) {
+        try {
+          const success = await strategy();
+          if (success) {
+            console.log('[admin] Sound played successfully');
+            return;
+          }
+        } catch (error) {
+          console.warn('[admin] Sound strategy failed:', error);
+        }
+      }
+
+      console.error('[admin] All sound strategies failed');
+    } catch (error) {
+      console.error('[admin] Sound play error:', error);
+    }
+  };
+
+  const enableSound = async () => {
+    try {
+      // Set the flag first so subsequent events can play even if play() rejects
+      setSoundEnabled(true);
+      try { localStorage.setItem('admin:soundEnabled', '1'); } catch { }
+      await playNotificationSound();
+    } catch { }
+  };
+
+  const scrollToBottom = (smooth = false) => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const behavior: ScrollBehavior = smooth ? "smooth" : "auto";
+    try {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    } catch {
+      container.scrollTop = container.scrollHeight;
+    }
+  };
+
+  const connectSocket = () => {
+    try {
+      // ⚡ Use global admin socket from AdminLayout
+      let s = getAdminSocket();
+
+      if (!s || !s.connected) {
+        const adminToken = typeof localStorage !== 'undefined' ? localStorage.getItem('adminToken') : null;
+        if (!adminToken) return;
+        const API_BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || 'http://localhost:5000';
+        s = io(API_BASE, { auth: { adminToken } });
+        console.log('[AdminChatPage] Created fallback socket');
+      } else {
+        console.log('[AdminChatPage] Using global admin socket');
+      }
+
+      socketRef.current = s;
+      s.on('connect', () => { });
+      s.on('chat:message', (msg: any) => {
+        const currentId = selectedThreadIdRef.current;
+        // Play sound for any incoming user message only when:
+        // 1. Not from admin
+        // 2. Sound is enabled
+        // 3. NOT viewing the same thread (user is not in the conversation)
+        try {
+          if (msg.senderType !== 'admin' && soundEnabledRef.current) {
+            const sameThread = currentId && String(msg.threadId) === String(currentId);
+            const isFocused = isWindowFocusedRef.current && !document.hidden;
+            console.log('[admin sound debug]', {
+              senderType: msg.senderType,
+              soundEnabled: soundEnabledRef.current,
+              sameThread,
+              isFocused,
+              windowFocused: isWindowFocusedRef.current,
+              documentHidden: document.hidden,
+              currentThreadId: currentId,
+              messageThreadId: msg.threadId,
+              userAgent: navigator.userAgent,
+              protocol: window.location.protocol
+            });
+            // Only play sound if: NOT the same thread (user is not in this conversation)
+            if (!sameThread) {
+              console.log('[admin] Playing notification sound - not in this conversation');
+              playNotificationSound();
+            } else {
+              console.log('[admin] Not playing sound - currently in this conversation');
+            }
+          }
+        } catch (error) {
+          console.error('[admin] Sound error:', error);
+        }
+        if (!currentId || String(msg.threadId) !== String(currentId)) return;
+        const img = msg.imageUrl ? (String(msg.imageUrl).startsWith('/') ? `${API_BASE}${msg.imageUrl}` : msg.imageUrl) : undefined;
+        const msgId = msg.id || msg._id || Date.now();
+        // Prevent duplicate messages by checking if message ID already exists
+        setMessages(prev => {
+          const exists = prev.some(m => String(m.id) === String(msgId));
+          if (exists) return prev;
+          return [...prev, { id: msgId, sender: msg.senderType === 'admin' ? 'admin' : 'user', text: msg.text || '', imageUrl: img, timestamp: new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), isRead: true }];
+        });
+        // Clear live typing draft text when message arrives
+        setPartnerDraftText('');
+        setTypingHeader(false);
+      });
+      s.on('chat:typing', (evt: any) => {
+        if (!selectedThreadIdRef.current || String(evt?.threadId) !== String(selectedThreadIdRef.current)) return;
+        // Show typing and live draft preview when user is typing
+        if (evt?.senderType === 'user') {
+          partnerTypingRef.current = !!evt.typing;
+          const v = !!evt.typing;
+          setTypingHeader(v);
+          setPartnerDraftText(v ? (evt.text || '') : '');
+          if (v) {
+            setTimeout(() => scrollToBottom(true), 50);
+          }
+        }
+      });
+      s.on('chat:threadUpdated', (evt: any) => {
+        loadThreads(evt?.threadId);
+      });
+      // presence updates
+      s.on('presence:update', (evt: any) => {
+        // re-fetch threads to reflect online state; lightweight approach for now
+        loadThreads();
+      });
+
+      // Handle thread deletion (auto-cleanup after 1h inactivity)
+      s.on('chat:threadDeleted', (evt: any) => {
+        console.log('[admin] Thread deleted:', evt);
+        // Remove the deleted thread from list
+        setThreads(prev => prev.filter(t => String(t.id) !== String(evt?.threadId)));
+        // If currently viewing this thread, clear messages
+        if (selectedThreadIdRef.current && String(evt?.threadId) === String(selectedThreadIdRef.current)) {
+          setMessages([]);
+          setSelectedThread(null);
+          selectedThreadIdRef.current = null;
+        }
+      });
+    } catch { }
+  };
+
+  const loadThreads = async (updatedThreadId?: string) => {
+    const res = await api.adminChatListThreads({ page: 1, limit: 50 });
+    const list = (res?.data?.threads || []).map((t: any) => ({
+      id: t.id || t._id,
+      user: { name: t.userId?.fullName || t.userId?.phoneNumber || 'User', email: t.userId?.email || '' },
+      lastMessage: t.lastMessageText || '',
+      timestamp: t.lastMessageAt ? new Date(t.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      unread: Number(t.unreadForAdmin || 0),
+      status: t.userOnline ? 'online' : 'offline',
+      userIp: t.userIp || '',
+      userLatitude: t.userLatitude,
+      userLongitude: t.userLongitude,
+      userGpsLocation: t.userGpsLocation,
+      userGpsUpdatedAt: t.userGpsUpdatedAt,
+      // carry last seen for UI (optional)
+      lastSeenAt: t.userLastSeenAt || null
+    }));
+    setThreads(list);
+    // Play sound if unread increased, but only when not focused on the same thread
+    try {
+      const newUnread = list.reduce((s: number, th: any) => s + Number(th.unread || 0), 0);
+      if (soundEnabled && newUnread > (prevUnreadRef.current || 0)) {
+        const currentId = selectedThreadIdRef.current;
+        const sameThread = updatedThreadId && currentId && String(updatedThreadId) === String(currentId);
+        const isFocused = isWindowFocusedRef.current && !document.hidden;
+        // Only play sound if: not same thread OR tab not focused
+        if (!sameThread || !isFocused) {
+          playNotificationSound();
+        }
+      }
+      prevUnreadRef.current = newUnread;
+    } catch { }
+    if (!selectedThread && list.length) setSelectedThread(list[0]);
+  };
+
+  const loadMessages = async (threadId: string) => {
+    const res = await api.adminChatListMessages(threadId);
+    const list: Message[] = (res?.data?.messages || []).map((m: any) => ({
+      id: m.id || m._id,
+      sender: m.senderType === 'admin' ? 'admin' : 'user',
+      text: m.text || '',
+      imageUrl: m.imageUrl ? (String(m.imageUrl).startsWith('/') ? `${API_BASE}${m.imageUrl}` : m.imageUrl) : undefined,
+      timestamp: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isRead: true,
+    }));
+    setMessages(list);
+    // scroll after messages render
+    setTimeout(() => scrollToBottom(false), 0);
+  };
+
+  useEffect(() => {
+    loadThreads();
+    connectSocket();
+    return () => {
+      // ⚡ Don't disconnect - socket is shared globally
+      // socketRef.current?.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedThread) return;
+    setPartnerDraftText('');
+    setTypingHeader(false);
+    loadMessages(selectedThread.id);
+    socketRef.current?.emit('chat:joinThread', selectedThread.id);
+    selectedThreadIdRef.current = selectedThread.id;
+    // mark as read when opened
+    api.adminChatMarkRead(selectedThread.id).catch(() => { });
+  }, [selectedThread?.id]);
+
+  // Auto scroll when new messages come
+  useEffect(() => {
+    scrollToBottom(true);
+  }, [messages]);
+
+  const filteredThreads = useMemo(() => threads.filter((thread) =>
+    thread.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    thread.user.email.toLowerCase().includes(searchQuery.toLowerCase())
+  ), [threads, searchQuery]);
+
+  const handleSendMessage = async () => {
+    const threadId = selectedThreadIdRef.current || selectedThread?.id;
+    if (!threadId) return;
+
+    if (!messageInput.trim() && !selectedImage) return;
+
+    // 1. If there's an image, upload it first
+    if (selectedImage) {
+      try {
+        await api.adminChatSendImage(threadId, selectedImage);
+      } catch (err) {
+        console.error("Admin upload image error:", err);
+      } finally {
+        if (imagePreviewUrl) {
+          URL.revokeObjectURL(imagePreviewUrl);
+        }
+        setSelectedImage(null);
+        setImagePreviewUrl('');
+      }
+    }
+
+    // 2. If there's text, send it
+    if (messageInput.trim()) {
+      socketRef.current?.emit('chat:send', { threadId, text: messageInput });
+      setMessageInput("");
+      try { socketRef.current?.emit('chat:typing', { threadId, typing: false, text: '' }); } catch { }
+    }
+  };
+
+  const handlePickImage = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    setSelectedImage(file);
+    setImagePreviewUrl(previewUrl);
+    
+    e.target.value = '';
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          e.preventDefault();
+          const previewUrl = URL.createObjectURL(file);
+          setSelectedImage(file);
+          setImagePreviewUrl(previewUrl);
+          break;
+        }
+      }
+    }
+  };
+
+  // Clear user chat history handler (preserves admin history)
+  const handleDeleteThread = async () => {
+    if (!selectedThread) return;
+    try {
+      await api.adminChatClearUserMessages(selectedThread.id);
+      toast.success(t('notifications.threadDeleted'));
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      toast.error(t('notifications.deleteThreadFailed'));
+    }
+  };
+
+  // Block/Unblock user handler
+  const handleBlockUser = async () => {
+    if (!selectedThread) return;
+    try {
+      const res = await api.adminChatBlockUser(selectedThread.id);
+      const blocked = res?.data?.blocked;
+      setIsUserBlocked(blocked);
+      setSelectedThread(prev => prev ? { ...prev, user: { ...prev.user, isChatBlocked: blocked } } : null);
+      toast.success(t('notifications.blockStatusUpdated', { action: blocked ? 'blocked' : 'unblocked' }));
+    } catch (err) {
+      toast.error(t('notifications.blockStatusFailed'));
+    }
+  };
+
+  // Quick reply handler
+  const handleQuickReply = (text: string) => {
+    setMessageInput(text);
+    setShowQuickReplies(false);
+  };
+
+  // Emoji picker handlers
+  const handleEmojiClick = (emojiData: EmojiClickData) => {
+    setMessageInput(prev => prev + emojiData.emoji);
+    setShowEmojiPicker(false);
+    textareaRef.current?.focus();
+  };
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    if (showEmojiPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showEmojiPicker]);
+
+  // Check block status when thread changes
+  useEffect(() => {
+    if (selectedThread?.user?.isChatBlocked !== undefined) {
+      setIsUserBlocked(selectedThread.user.isChatBlocked);
+    }
+  }, [selectedThread]);
+
+  const totalUnread = threads.reduce((sum, thread) => sum + (thread.unread || 0), 0);
+  // Broadcast unread to layout
+  useEffect(() => {
+    try {
+      const evt = new CustomEvent('chatUnreadUpdated', { detail: totalUnread });
+      window.dispatchEvent(evt);
+    } catch { }
+  }, [totalUnread]);
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
+      {/* Hidden audio for notifications */}
+      <audio ref={audioRef} src={new URL('../../assets/sound/noti.mp3', import.meta.url).toString()} preload="auto" />
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl text-gray-900 mb-1">{t('title')}</h1>
+          <p className="text-gray-600">{t('subtitle')}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge variant="secondary" className="bg-red-100 text-red-700 px-4 py-2">
+            {totalUnread} {t('unread')}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Chat Interface */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex-1 flex min-h-0 h-full overflow-hidden">
+        {/* Threads List - Hidden on mobile when chat is open */}
+        <div className={`w-full md:w-80 border-r border-gray-100 flex flex-col overflow-hidden ${mobileShowChat ? 'hidden md:flex' : 'flex'}`}>
+          {/* Search */}
+          <div className="p-4 border-b border-gray-100">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder={t('search')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Thread List */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div className="p-2">
+              {filteredThreads.map((thread) => (
+                <button
+                  key={thread.id}
+                  onClick={() => {
+                    setSelectedThread(thread);
+                    setMobileShowChat(true);
+                  }}
+                  className={`w-full p-3 rounded-lg text-left transition-colors mb-1 ${selectedThread?.id === thread.id
+                    ? "bg-blue-50 border border-blue-200"
+                    : "hover:bg-gray-50 border border-transparent"
+                    }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="relative">
+                      <Avatar className="w-12 h-12">
+                        <AvatarImage src={thread.user.avatar} />
+                        <AvatarFallback className="bg-blue-100 text-blue-600">
+                          {thread.user.name.split(" ").map((n) => n[0]).join("")}
+                        </AvatarFallback>
+                      </Avatar>
+                      {/* Online = green dot, Offline = gray dot */}
+                      <div className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full ${thread.status === "online" ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between mb-1">
+                        <p className="text-gray-900 truncate">{thread.user.name}</p>
+                        <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
+                          {thread.timestamp}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 truncate">
+                        {thread.lastMessage === '[image]' ? t('sentImage') : thread.lastMessage}
+                      </p>
+                      {/* Last seen time for offline users */}
+                      {thread.status !== "online" && thread.lastSeenAt && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {t('lastSeen')}: {new Date(thread.lastSeenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                    {thread.unread > 0 && (
+                      <Badge variant="secondary" className="bg-red-500 text-white text-xs ml-2">
+                        {thread.unread}
+                      </Badge>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Chat Area - Full width on mobile, hidden when no chat selected */}
+        {selectedThread ? (
+          <div className={`flex-1 flex flex-col overflow-hidden relative min-h-0 h-full ${mobileShowChat ? 'flex' : 'hidden md:flex'}`}>
+            {/* Chat Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                {/* Back button for mobile */}
+                <button
+                  onClick={() => setMobileShowChat(false)}
+                  className="md:hidden p-2 -ml-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <ArrowLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <div className="relative">
+                  <Avatar className="w-10 h-10">
+                    <AvatarImage src={selectedThread.user.avatar} />
+                    <AvatarFallback className="bg-blue-100 text-blue-600">
+                      {selectedThread.user.name.split(" ").map((n) => n[0]).join("")}
+                    </AvatarFallback>
+                  </Avatar>
+                  {selectedThread.status === "online" && (
+                    <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-gray-900">{selectedThread.user.name}</p>
+                    {isUserBlocked && (
+                      <Badge variant="secondary" className="bg-red-100 text-red-600 text-xs">{t('blocked')}</Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500">{typingHeader ? t('typing') : selectedThread.user.email}</p>
+                  {selectedThread.userGpsLocation && (
+                    <div className="flex flex-col gap-1 text-xs">
+                      {/* GPS Location Only - Accurate */}
+                      <div className="flex items-center gap-2 text-green-600">
+                        <MapPin className="w-3 h-3 fill-green-600" />
+                        <span className="font-medium">{selectedThread.userGpsLocation}</span>
+                        {selectedThread.userGpsUpdatedAt && (
+                          <span className="text-gray-400 text-[10px]">
+                            ({new Date(selectedThread.userGpsUpdatedAt).toLocaleString()})
+                          </span>
+                        )}
+                      </div>
+                      {selectedThread.userLatitude && selectedThread.userLongitude && (
+                        <a
+                          href={`https://www.google.com/maps?q=${selectedThread.userLatitude},${selectedThread.userLongitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:underline flex items-center gap-1"
+                        >
+                          {t('viewOnMaps')}
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="p-2 hover:bg-gray-100 rounded-lg">
+                    <MoreVertical className="w-5 h-5 text-gray-600" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setShowQuickReplies(true)}>
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    {t('quickReplies')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleBlockUser} className={isUserBlocked ? "text-green-600" : "text-orange-600"}>
+                    <Ban className="w-4 h-4 mr-2" />
+                    {isUserBlocked ? t('unblockUser') : t('blockUser')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowDeleteConfirm(true)} className="text-red-600">
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    {t('deleteThread')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Quick Replies Panel */}
+            {showQuickReplies && (
+              <div className="absolute top-16 right-4 z-50 bg-white border border-gray-200 rounded-lg shadow-lg p-3 w-72">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700">{t('quickReplies')}</span>
+                  <button onClick={() => setShowQuickReplies(false)} className="p-1 hover:bg-gray-100 rounded">
+                    <X className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {t('quickReplyTemplates', { returnObjects: true }).map((reply: string, idx: number) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleQuickReply(reply)}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      {reply}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-30">
+                <div className="bg-white rounded-xl p-6 w-80 shadow-xl">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('deleteConfirmTitle')}</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {t('deleteConfirmMessage')}
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                    >
+                      {t('cancel')}
+                    </button>
+                    <button
+                      onClick={handleDeleteThread}
+                      className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                    >
+                      {t('delete')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Messages */}
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 min-h-0 h-full w-full p-4 overflow-y-auto overscroll-contain scroll-smooth bg-gray-50"
+            >
+              <div className="space-y-4">
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.sender === "admin" ? "justify-end" : "justify-start"}`}
+                  >
+                    {(() => {
+                      const isImage = !!message.imageUrl;
+                      const sideBase = message.sender === "admin" ? "rounded-2xl rounded-br-sm" : "rounded-2xl rounded-bl-sm";
+                      const bubbleBase = message.sender === "admin" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900";
+                      const bubbleClasses = isImage ? `${sideBase} p-0` : `${bubbleBase} ${sideBase} px-4 py-2`;
+                      return (
+                        <div className={`max-w-md ${bubbleClasses}`}>
+                          {isImage ? (
+                            <img src={message.imageUrl} alt="image" className="max-w-[320px] max-h-[380px] rounded-lg object-contain" />
+                          ) : (
+                            <p className="text-sm">{message.text}</p>
+                          )}
+                          {!isImage && (
+                            <p
+                              className={`text-xs mt-1 ${message.sender === "admin" ? "text-blue-100" : "text-gray-500"
+                                }`}
+                            >
+                              {message.timestamp}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ))}
+
+                {/* 🔴 LIVE SNEAK-PEEK: Real-time user typing preview */}
+                {partnerDraftText ? (
+                  <div className="flex justify-start items-end gap-2 animate-fadeIn">
+                    <Avatar className="w-8 h-8 flex-shrink-0">
+                      <AvatarImage src={selectedThread.user.avatar} />
+                      <AvatarFallback className="bg-blue-100 text-blue-600 text-xs">
+                        {selectedThread.user.name.split(" ").map((n) => n[0]).join("")}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="max-w-md bg-white border border-dashed border-blue-400 text-gray-900 rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm">
+                      <div className="flex items-center gap-1.5 mb-1 text-[11px] text-blue-600 font-semibold">
+                        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                        <span>Khách đang soạn (Trực tiếp)...</span>
+                      </div>
+                      <p className="text-sm text-gray-800 italic break-words whitespace-pre-wrap">{partnerDraftText}</p>
+                    </div>
+                  </div>
+                ) : typingHeader ? (
+                  <div className="flex justify-start items-center gap-2 px-2 py-1 text-xs text-gray-400 italic">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping inline-block" />
+                    <span>{selectedThread.user.name} đang soạn...</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Input Area */}
+            <div className="p-4 border-t border-gray-100 sticky bottom-0 bg-white z-10 flex-shrink-0">
+              {/* Live Sneak-Peek Indicator Banner above textarea */}
+              {partnerDraftText && (
+                <div className="mb-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between text-xs text-blue-800 animate-fadeIn">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="flex h-2 w-2 relative flex-shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                    </span>
+                    <span className="font-semibold whitespace-nowrap text-blue-700">Khách đang soạn:</span>
+                    <span className="truncate italic text-gray-900 font-medium">{partnerDraftText}</span>
+                  </div>
+                </div>
+              )}
+              {/* Image Preview */}
+              {selectedImage && (
+                <div className="relative rounded-lg overflow-hidden border border-gray-200 w-20 h-20 mb-3 bg-gray-50 flex items-center justify-center shadow-sm">
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Upload Preview"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                  <button
+                    onClick={handleCancelImage}
+                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow transition-colors"
+                  >
+                    <span className="text-xs font-bold">×</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-end gap-3">
+                {/* Paperclip button */}
+                <button className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg" onClick={handlePickImage} disabled={!selectedThread}>
+                  <Paperclip className="w-5 h-5" />
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+
+                {/* Emoji Picker Button & Popup - moved to left side */}
+                <div className="relative" ref={emojiPickerRef}>
+                  <button
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    className={`p-2 rounded-lg transition-colors ${showEmojiPicker ? 'bg-blue-100 text-blue-600' : 'text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+
+                  {/* Emoji Picker Popup */}
+                  {showEmojiPicker && (
+                    <div
+                      className="fixed z-[9999] shadow-2xl rounded-2xl overflow-hidden"
+                      style={{
+                        bottom: 'calc(60px + 20px)',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        animation: 'fadeIn 0.2s ease-out'
+                      }}
+                    >
+                      <EmojiPicker
+                        onEmojiClick={handleEmojiClick}
+                        theme={Theme.LIGHT}
+                        emojiStyle={EmojiStyle.NATIVE}
+                        lazyLoadEmojis={false}
+                        width={300}
+                        height={380}
+                        searchPlaceHolder="Search emoji..."
+                        previewConfig={{ showPreview: false }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Text input */}
+                <div className="flex-1">
+                  <textarea
+                    ref={textareaRef}
+                    value={messageInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMessageInput(val);
+                      const tid = selectedThreadIdRef.current || selectedThread?.id;
+                      if (!tid) return;
+                      try {
+                        socketRef.current?.emit('chat:typing', { threadId: tid, typing: !!val.trim(), text: val });
+                        if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+                        if (val.trim()) {
+                          typingTimerRef.current = window.setTimeout(() => {
+                            socketRef.current?.emit('chat:typing', { threadId: tid, typing: false, text: '' });
+                          }, 1500);
+                        } else {
+                          socketRef.current?.emit('chat:typing', { threadId: tid, typing: false, text: '' });
+                        }
+                      } catch { }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    onPaste={handlePaste}
+                    placeholder={t('typeMessage')}
+                    rows={1}
+                    className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                </div>
+
+                {/* Send button */}
+                <button
+                  onClick={handleSendMessage}
+                  className="p-3 bg-blue-600 text-white hover:bg-blue-700 rounded-lg"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-gray-500">
+            <div className="text-center">
+              <User className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+              <p>{t('selectConversation')}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

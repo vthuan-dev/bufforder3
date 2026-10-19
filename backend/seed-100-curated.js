@@ -1,0 +1,810 @@
+const prisma = require('./lib/prisma');
+
+const products = [
+  {
+    "name": "Green Crystal Earring",
+    "brand": "Generic",
+    "category": "Jewelry",
+    "price": 30,
+    "image": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-crystal-earring/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/182"
+  },
+  {
+    "name": "Green Oval Earring",
+    "brand": "Generic",
+    "category": "Jewelry",
+    "price": 25,
+    "image": "https://cdn.dummyjson.com/product-images/womens-jewellery/green-oval-earring/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/183"
+  },
+  {
+    "name": "Tropical Earring",
+    "brand": "Generic",
+    "category": "Jewelry",
+    "price": 20,
+    "image": "https://cdn.dummyjson.com/product-images/womens-jewellery/tropical-earring/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/184"
+  },
+  {
+    "name": "John Hardy Naga Dragon Bracelet",
+    "brand": "Luxury Jewelry",
+    "category": "Jewelry",
+    "price": 695,
+    "image": "https://images.unsplash.com/photo-1573408301185-9146fe634ad0?w=600&auto=format&fit=crop&q=80",
+    "productUrl": "https://fakestoreapi.com/products/5"
+  },
+  {
+    "name": "Solid Gold Petite Micropave Ring",
+    "brand": "Luxury Jewelry",
+    "category": "Jewelry",
+    "price": 168,
+    "image": "https://images.unsplash.com/photo-1603561591411-07134e71a2a9?w=600&auto=format&fit=crop&q=80",
+    "productUrl": "https://fakestoreapi.com/products/6"
+  },
+  {
+    "name": "Pierced Owl Rose Gold Earrings",
+    "brand": "Luxury Jewelry",
+    "category": "Jewelry",
+    "price": 11,
+    "image": "https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80",
+    "productUrl": "https://fakestoreapi.com/products/8"
+  },
+  {
+    "name": "Tiffany Diamond Solitaire Ring",
+    "brand": "Tiffany & Co",
+    "category": "Jewelry",
+    "price": 4200,
+    "image": "https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Swarovski Crystal Heart Necklace",
+    "brand": "Swarovski",
+    "category": "Jewelry",
+    "price": 149,
+    "image": "https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Pandora Silver Sparkling Earrings",
+    "brand": "Pandora",
+    "category": "Jewelry",
+    "price": 89,
+    "image": "https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Bvlgari Serpenti Viper Ring",
+    "brand": "Bvlgari",
+    "category": "Jewelry",
+    "price": 3800,
+    "image": "https://images.unsplash.com/photo-1603561591411-07134e71a2a9?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Van Cleef Alhambra Necklace",
+    "brand": "Van Cleef",
+    "category": "Jewelry",
+    "price": 2900,
+    "image": "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Pearl Drop Wedding Earrings",
+    "brand": "Mikimoto",
+    "category": "Jewelry",
+    "price": 320,
+    "image": "https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Gold Twisted Rope Chain",
+    "brand": "Mejuri",
+    "category": "Jewelry",
+    "price": 195,
+    "image": "https://images.unsplash.com/photo-1598560917505-59a3ad559071?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Cartier White Gold Band",
+    "brand": "Cartier",
+    "category": "Jewelry",
+    "price": 1850,
+    "image": "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Sapphire Halo Diamond Pendant",
+    "brand": "Blue Nile",
+    "category": "Jewelry",
+    "price": 1250,
+    "image": "https://images.unsplash.com/photo-1506630448388-4e683c67ddb0?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Rose Gold Tennis Bracelet",
+    "brand": "Swarovski",
+    "category": "Jewelry",
+    "price": 280,
+    "image": "https://images.unsplash.com/photo-1573408301185-9146fe634ad0?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Diamond Eternity Wedding Band",
+    "brand": "Harry Winston",
+    "category": "Jewelry",
+    "price": 5400,
+    "image": "https://images.unsplash.com/photo-1598560917505-59a3ad559071?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Emerald Cut Gemstone Necklace",
+    "brand": "Chopard",
+    "category": "Jewelry",
+    "price": 3200,
+    "image": "https://images.unsplash.com/photo-1599643477877-530eb83abc8e?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Vintage Floral Diamond Brooch",
+    "brand": "Cartier",
+    "category": "Jewelry",
+    "price": 4600,
+    "image": "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Yellow Gold Huggie Earrings",
+    "brand": "Mejuri",
+    "category": "Jewelry",
+    "price": 160,
+    "image": "https://images.unsplash.com/photo-1630019852942-f89202989a59?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Platinum Solitaire Engagement Ring",
+    "brand": "Tiffany & Co",
+    "category": "Jewelry",
+    "price": 6800,
+    "image": "https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Cubic Zirconia Tennis Choker",
+    "brand": "Swarovski",
+    "category": "Jewelry",
+    "price": 210,
+    "image": "https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Akoya Cultured Pearl Necklace",
+    "brand": "Mikimoto",
+    "category": "Jewelry",
+    "price": 3800,
+    "image": "https://images.unsplash.com/photo-1506630448388-4e683c67ddb0?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Chopard Happy Diamonds Ring",
+    "brand": "Chopard",
+    "category": "Jewelry",
+    "price": 2150,
+    "image": "https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "David Yurman Cable Bracelet",
+    "brand": "David Yurman",
+    "category": "Jewelry",
+    "price": 750,
+    "image": "https://images.unsplash.com/photo-1596944924616-7b38e7cfac36?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Brown Leather Belt Watch",
+    "brand": "Fashion Timepieces",
+    "category": "Watches",
+    "price": 90,
+    "image": "https://cdn.dummyjson.com/product-images/mens-watches/brown-leather-belt-watch/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/93"
+  },
+  {
+    "name": "Longines Master Collection",
+    "brand": "Longines",
+    "category": "Watches",
+    "price": 1500,
+    "image": "https://cdn.dummyjson.com/product-images/mens-watches/longines-master-collection/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/94"
+  },
+  {
+    "name": "Rolex Cellini Date Black Dial",
+    "brand": "Rolex",
+    "category": "Watches",
+    "price": 9000,
+    "image": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-cellini-date-black-dial/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/95"
+  },
+  {
+    "name": "Rolex Cellini Moonphase",
+    "brand": "Rolex",
+    "category": "Watches",
+    "price": 13000,
+    "image": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-cellini-moonphase/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/96"
+  },
+  {
+    "name": "Rolex Datejust",
+    "brand": "Rolex",
+    "category": "Watches",
+    "price": 11000,
+    "image": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-datejust/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/97"
+  },
+  {
+    "name": "Rolex Submariner Watch",
+    "brand": "Rolex",
+    "category": "Watches",
+    "price": 14000,
+    "image": "https://cdn.dummyjson.com/product-images/mens-watches/rolex-submariner-watch/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/98"
+  },
+  {
+    "name": "IWC Ingenieur Automatic Steel",
+    "brand": "IWC",
+    "category": "Watches",
+    "price": 5000,
+    "image": "https://cdn.dummyjson.com/product-images/womens-watches/iwc-ingenieur-automatic-steel/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/190"
+  },
+  {
+    "name": "Rolex Datejust Women",
+    "brand": "Rolex",
+    "category": "Watches",
+    "price": 11000,
+    "image": "https://cdn.dummyjson.com/product-images/womens-watches/rolex-datejust-women/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/192"
+  },
+  {
+    "name": "Watch Gold for Women",
+    "brand": "Fashion Gold",
+    "category": "Watches",
+    "price": 800,
+    "image": "https://cdn.dummyjson.com/product-images/womens-watches/watch-gold-for-women/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/193"
+  },
+  {
+    "name": "Women's Wrist Watch",
+    "brand": "Fashion Co.",
+    "category": "Watches",
+    "price": 130,
+    "image": "https://cdn.dummyjson.com/product-images/womens-watches/women's-wrist-watch/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/194"
+  },
+  {
+    "name": "Panerai Luminor Marina Automatic",
+    "brand": "Panerai",
+    "category": "Watches",
+    "price": 7900,
+    "image": "https://images.unsplash.com/photo-1508615039623-a25605d2b022?w=600&auto=format&fit=crop&q=80"
+  },
+  {
+    "name": "Rolex Submariner Date Watch",
+    "brand": "Rolex",
+    "category": "Watches",
+    "price": 12500,
+    "image": "https://images.unsplash.com/photo-1523170335258-f5ed11844a49?w=800&q=80"
+  },
+  {
+    "name": "Omega Seamaster Diver 300M",
+    "brand": "Omega",
+    "category": "Watches",
+    "price": 5800,
+    "image": "https://images.unsplash.com/photo-1547996160-81dfa63595aa?w=800&q=80"
+  },
+  {
+    "name": "TAG Heuer Carrera Chronograph",
+    "brand": "TAG Heuer",
+    "category": "Watches",
+    "price": 4200,
+    "image": "https://images.unsplash.com/photo-1614164185128-e4ec99c436d7?w=800&q=80"
+  },
+  {
+    "name": "Cartier Santos Automatic Watch",
+    "brand": "Cartier",
+    "category": "Watches",
+    "price": 7200,
+    "image": "https://images.unsplash.com/photo-1509048191080-d2984bad6ae5?w=800&q=80"
+  },
+  {
+    "name": "Patek Philippe Calatrava Rose Watch",
+    "brand": "Patek Philippe",
+    "category": "Watches",
+    "price": 28000,
+    "image": "https://images.unsplash.com/photo-1522312346375-d1a52e2b99b3?w=800&q=80"
+  },
+  {
+    "name": "Seiko Prospex Diver Automatic",
+    "brand": "Seiko",
+    "category": "Watches",
+    "price": 475,
+    "image": "https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=800&q=80"
+  },
+  {
+    "name": "Tissot PRX Powermatic 80",
+    "brand": "Tissot",
+    "category": "Watches",
+    "price": 695,
+    "image": "https://images.unsplash.com/photo-1533139502658-0198f920d8e8?w=800&q=80"
+  },
+  {
+    "name": "Casio G-Shock Carbon Core",
+    "brand": "Casio",
+    "category": "Watches",
+    "price": 120,
+    "image": "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=800&q=80"
+  },
+  {
+    "name": "Fossil Townsman Automatic Skeleton",
+    "brand": "Fossil",
+    "category": "Watches",
+    "price": 240,
+    "image": "https://images.unsplash.com/photo-1523170335258-f5ed11844a49?w=800&q=80"
+  },
+  {
+    "name": "Citizen Eco-Drive Promaster Diver",
+    "brand": "Citizen",
+    "category": "Watches",
+    "price": 325,
+    "image": "https://images.unsplash.com/photo-1547996160-81dfa63595aa?w=800&q=80"
+  },
+  {
+    "name": "Breitling Navitimer B01 Chronograph",
+    "brand": "Breitling",
+    "category": "Watches",
+    "price": 8900,
+    "image": "https://images.unsplash.com/photo-1614164185128-e4ec99c436d7?w=800&q=80"
+  },
+  {
+    "name": "Audemars Piguet Royal Oak",
+    "brand": "Audemars Piguet",
+    "category": "Watches",
+    "price": 29500,
+    "image": "https://images.unsplash.com/photo-1509048191080-d2984bad6ae5?w=800&q=80"
+  },
+  {
+    "name": "Hamilton Khaki Field Mechanical",
+    "brand": "Hamilton",
+    "category": "Watches",
+    "price": 550,
+    "image": "https://images.unsplash.com/photo-1522312346375-d1a52e2b99b3?w=800&q=80"
+  },
+  {
+    "name": "Longines HydroConquest Ceramic Watch",
+    "brand": "Longines",
+    "category": "Watches",
+    "price": 1700,
+    "image": "https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=800&q=80"
+  },
+  {
+    "name": "Blue & Black Check Shirt",
+    "brand": "Fashion Trends",
+    "category": "Clothing",
+    "price": 30,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shirts/blue-&-black-check-shirt/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/83"
+  },
+  {
+    "name": "Gigabyte Aorus Men Tshirt",
+    "brand": "Gigabyte",
+    "category": "Clothing",
+    "price": 25,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shirts/gigabyte-aorus-men-tshirt/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/84"
+  },
+  {
+    "name": "Man Plaid Shirt",
+    "brand": "Classic Wear",
+    "category": "Clothing",
+    "price": 35,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shirts/man-plaid-shirt/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/85"
+  },
+  {
+    "name": "Man Short Sleeve Shirt",
+    "brand": "Casual Comfort",
+    "category": "Clothing",
+    "price": 20,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shirts/man-short-sleeve-shirt/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/86"
+  },
+  {
+    "name": "Men Check Shirt",
+    "brand": "Urban Chic",
+    "category": "Clothing",
+    "price": 28,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shirts/men-check-shirt/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/87"
+  },
+  {
+    "name": "Nike Air Jordan 1 Red",
+    "brand": "Nike",
+    "category": "Clothing",
+    "price": 150,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shoes/nike-air-jordan-1-red-and-black/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/88"
+  },
+  {
+    "name": "Nike Baseball Cleats",
+    "brand": "Nike",
+    "category": "Clothing",
+    "price": 80,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shoes/nike-baseball-cleats/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/89"
+  },
+  {
+    "name": "Puma Future Rider Trainers",
+    "brand": "Puma",
+    "category": "Clothing",
+    "price": 90,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shoes/puma-future-rider-trainers/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/90"
+  },
+  {
+    "name": "Off-White Street Sports Sneakers",
+    "brand": "Off White",
+    "category": "Clothing",
+    "price": 120,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shoes/sports-sneakers-off-white-&-red/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/91"
+  },
+  {
+    "name": "Off-White Red Athletic Sneakers",
+    "brand": "Off White",
+    "category": "Clothing",
+    "price": 110,
+    "image": "https://cdn.dummyjson.com/product-images/mens-shoes/sports-sneakers-off-white-red/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/92"
+  },
+  {
+    "name": "Black Sun Glasses",
+    "brand": "Fashion Shades",
+    "category": "Clothing",
+    "price": 30,
+    "image": "https://cdn.dummyjson.com/product-images/sunglasses/black-sun-glasses/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/154"
+  },
+  {
+    "name": "Classic Sun Glasses",
+    "brand": "Fashion Shades",
+    "category": "Clothing",
+    "price": 25,
+    "image": "https://cdn.dummyjson.com/product-images/sunglasses/classic-sun-glasses/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/155"
+  },
+  {
+    "name": "Green and Black Glasses",
+    "brand": "Fashion Shades",
+    "category": "Clothing",
+    "price": 35,
+    "image": "https://cdn.dummyjson.com/product-images/sunglasses/green-and-black-glasses/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/156"
+  },
+  {
+    "name": "Party Glasses",
+    "brand": "Fashion Fun",
+    "category": "Clothing",
+    "price": 20,
+    "image": "https://cdn.dummyjson.com/product-images/sunglasses/party-glasses/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/157"
+  },
+  {
+    "name": "Sunglasses",
+    "brand": "Fashion Shades",
+    "category": "Clothing",
+    "price": 23,
+    "image": "https://cdn.dummyjson.com/product-images/sunglasses/sunglasses/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/158"
+  },
+  {
+    "name": "Blue Frock",
+    "brand": "Generic",
+    "category": "Clothing",
+    "price": 30,
+    "image": "https://cdn.dummyjson.com/product-images/tops/blue-frock/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/162"
+  },
+  {
+    "name": "Girl Summer Dress",
+    "brand": "Generic",
+    "category": "Clothing",
+    "price": 20,
+    "image": "https://cdn.dummyjson.com/product-images/tops/girl-summer-dress/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/163"
+  },
+  {
+    "name": "Gray Dress",
+    "brand": "Generic",
+    "category": "Clothing",
+    "price": 35,
+    "image": "https://cdn.dummyjson.com/product-images/tops/gray-dress/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/164"
+  },
+  {
+    "name": "Short Frock",
+    "brand": "Generic",
+    "category": "Clothing",
+    "price": 25,
+    "image": "https://cdn.dummyjson.com/product-images/tops/short-frock/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/165"
+  },
+  {
+    "name": "Tartan Dress",
+    "brand": "Generic",
+    "category": "Clothing",
+    "price": 40,
+    "image": "https://cdn.dummyjson.com/product-images/tops/tartan-dress/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/166"
+  },
+  {
+    "name": "Blue Women's Handbag",
+    "brand": "Fashionista",
+    "category": "Clothing",
+    "price": 50,
+    "image": "https://cdn.dummyjson.com/product-images/womens-bags/blue-women's-handbag/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/172"
+  },
+  {
+    "name": "Heshe Women's Leather Bag",
+    "brand": "Heshe",
+    "category": "Clothing",
+    "price": 130,
+    "image": "https://cdn.dummyjson.com/product-images/womens-bags/heshe-women's-leather-bag/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/173"
+  },
+  {
+    "name": "Prada Women Bag",
+    "brand": "Prada",
+    "category": "Clothing",
+    "price": 600,
+    "image": "https://cdn.dummyjson.com/product-images/womens-bags/prada-women-bag/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/174"
+  },
+  {
+    "name": "White Faux Leather Backpack",
+    "brand": "Urban Chic",
+    "category": "Clothing",
+    "price": 40,
+    "image": "https://cdn.dummyjson.com/product-images/womens-bags/white-faux-leather-backpack/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/175"
+  },
+  {
+    "name": "Women Handbag Black",
+    "brand": "Elegance Collection",
+    "category": "Clothing",
+    "price": 60,
+    "image": "https://cdn.dummyjson.com/product-images/womens-bags/women-handbag-black/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/176"
+  },
+  {
+    "name": "Apple MacBook Pro 14 Inch",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 2000,
+    "image": "https://cdn.dummyjson.com/product-images/laptops/apple-macbook-pro-14-inch-space-grey/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/78"
+  },
+  {
+    "name": "Asus Zenbook Pro Dual Screen",
+    "brand": "Asus",
+    "category": "Electronics",
+    "price": 1800,
+    "image": "https://cdn.dummyjson.com/product-images/laptops/asus-zenbook-pro-dual-screen-laptop/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/79"
+  },
+  {
+    "name": "Huawei Matebook X Pro",
+    "brand": "Huawei",
+    "category": "Electronics",
+    "price": 1400,
+    "image": "https://cdn.dummyjson.com/product-images/laptops/huawei-matebook-x-pro/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/80"
+  },
+  {
+    "name": "Lenovo Yoga 920",
+    "brand": "Lenovo",
+    "category": "Electronics",
+    "price": 1100,
+    "image": "https://cdn.dummyjson.com/product-images/laptops/lenovo-yoga-920/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/81"
+  },
+  {
+    "name": "Dell XPS 13 9300 Laptop",
+    "brand": "Dell",
+    "category": "Electronics",
+    "price": 1500,
+    "image": "https://cdn.dummyjson.com/product-images/laptops/new-dell-xps-13-9300-laptop/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/82"
+  },
+  {
+    "name": "Amazon Echo Plus",
+    "brand": "Amazon",
+    "category": "Electronics",
+    "price": 100,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/amazon-echo-plus/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/99"
+  },
+  {
+    "name": "Apple Airpods",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 130,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/apple-airpods/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/100"
+  },
+  {
+    "name": "Apple AirPods Max Silver",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 550,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/apple-airpods-max-silver/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/101"
+  },
+  {
+    "name": "Apple Airpower Wireless Charger",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 80,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/apple-airpower-wireless-charger/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/102"
+  },
+  {
+    "name": "Apple HomePod Mini Cosmic Grey",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 100,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/apple-homepod-mini-cosmic-grey/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/103"
+  },
+  {
+    "name": "Apple iPhone Charger",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 20,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/apple-iphone-charger/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/104"
+  },
+  {
+    "name": "Apple MagSafe Battery Pack",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 100,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/apple-magsafe-battery-pack/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/105"
+  },
+  {
+    "name": "Apple Watch Series 4 Gold",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 350,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/apple-watch-series-4-gold/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/106"
+  },
+  {
+    "name": "Beats Flex Wireless Earphones",
+    "brand": "Beats",
+    "category": "Electronics",
+    "price": 50,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/beats-flex-wireless-earphones/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/107"
+  },
+  {
+    "name": "iPhone 12 MagSafe Silicone Case",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 30,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/iphone-12-silicone-case-with-magsafe-plum/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/108"
+  },
+  {
+    "name": "Universal Camera Monopod Selfie Stick",
+    "brand": "TechGear",
+    "category": "Electronics",
+    "price": 20,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/monopod/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/109"
+  },
+  {
+    "name": "Selfie Lamp with iPhone",
+    "brand": "GadgetMaster",
+    "category": "Electronics",
+    "price": 15,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/selfie-lamp-with-iphone/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/110"
+  },
+  {
+    "name": "Selfie Stick Monopod",
+    "brand": "SnapTech",
+    "category": "Electronics",
+    "price": 13,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/selfie-stick-monopod/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/111"
+  },
+  {
+    "name": "TV Studio Camera Pedestal",
+    "brand": "ProVision",
+    "category": "Electronics",
+    "price": 500,
+    "image": "https://cdn.dummyjson.com/product-images/mobile-accessories/tv-studio-camera-pedestal/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/112"
+  },
+  {
+    "name": "iPhone 5s",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 200,
+    "image": "https://cdn.dummyjson.com/product-images/smartphones/iphone-5s/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/121"
+  },
+  {
+    "name": "iPhone 6",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 300,
+    "image": "https://cdn.dummyjson.com/product-images/smartphones/iphone-6/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/122"
+  },
+  {
+    "name": "iPhone 13 Pro",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 1100,
+    "image": "https://cdn.dummyjson.com/product-images/smartphones/iphone-13-pro/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/123"
+  },
+  {
+    "name": "iPhone X",
+    "brand": "Apple",
+    "category": "Electronics",
+    "price": 900,
+    "image": "https://cdn.dummyjson.com/product-images/smartphones/iphone-x/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/124"
+  },
+  {
+    "name": "Oppo A57",
+    "brand": "Oppo",
+    "category": "Electronics",
+    "price": 250,
+    "image": "https://cdn.dummyjson.com/product-images/smartphones/oppo-a57/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/125"
+  },
+  {
+    "name": "Oppo F19 Pro Plus",
+    "brand": "Oppo",
+    "category": "Electronics",
+    "price": 400,
+    "image": "https://cdn.dummyjson.com/product-images/smartphones/oppo-f19-pro-plus/thumbnail.webp",
+    "productUrl": "https://dummyjson.com/products/126"
+  }
+];
+
+async function seed100Products() {
+  console.log('🚀 Bắt đầu seed 100 sản phẩm mới vào database...');
+  console.log('📦 Tổng sản phẩm chuẩn bị:', products.length);
+
+  try {
+    let added = 0;
+    for (const p of products) {
+      const existing = await prisma.product.findFirst({
+        where: { name: p.name }
+      });
+
+      if (!existing) {
+        await prisma.product.create({
+          data: {
+            name: p.name,
+            brand: p.brand,
+            category: p.category,
+            price: parseFloat(p.price),
+            image: p.image,
+            productUrl: p.productUrl || 'https://ashfordorder.com',
+            isActive: true
+          }
+        });
+        added++;
+      }
+    }
+
+    const totalNow = await prisma.product.count();
+    console.log(`\n✅ Đã thêm mới: ${added} sản phẩm!`);
+    console.log(`📊 Tổng số sản phẩm trong DB: ${totalNow} sản phẩm!`);
+  } catch (error) {
+    console.error('❌ Lỗi khi seed sản phẩm:', error);
+  } finally {
+    await prisma.$disconnect();
+    process.exit(0);
+  }
+}
+
+seed100Products();

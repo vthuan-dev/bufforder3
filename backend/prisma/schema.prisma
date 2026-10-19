@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(cuid())
+  phoneNumber        String              @unique(map: "User_phoneNumber_key")
+  fullName           String
+  email              String?             @unique(map: "User_email_key")
+  password           String
+  vipLevel           String              @default("vip-0")
+  totalDeposited     Float               @default(0)
+  balance            Float               @default(0)
+  freezeBalance      Float               @default(0)
+  commission         Float               @default(0)
+  isActive           Boolean             @default(true)
+  lastSeenAt         DateTime?
+  inviteCodeUsed     String?
+  commissionConfig   String?             @db.LongText
+  dailyEarnings      String?             @db.LongText
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  chatBlockedAt      DateTime?
+  chatBlockedReason  String?             @db.Text
+  isChatBlocked      Boolean             @default(false)
+  isFrozen           Boolean             @default(false)
+  frozenBalance      Float               @default(0)
+  frozenAt           DateTime?
+  frozenReason       String?             @db.Text
+  unfrozenAt         DateTime?
+  unfrozenBy         String?
+  addresses          Address[]
+  bankCards          BankCard[]
+  usdtWallets        UsdtWallet[]
+  chatThreads        ChatThread[]
+  depositRequests    DepositRequest[]    @relation("UserDeposits")
+  orders             Order[]
+  withdrawalRequests WithdrawalRequest[]
+  notifications      Notification[]
+
+  @@index([fullName], map: "User_fullName_idx")
+  @@index([phoneNumber], map: "User_phoneNumber_idx")
+  @@map("user")
+}
+
+model Address {
+  id           String  @id @default(cuid())
+  userId       String
+  fullName     String
+  phoneNumber  String
+  addressLine1 String
+  city         String
+  postalCode   String
+  isDefault    Boolean @default(false)
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "Address_userId_idx")
+  @@map("address")
+}
+
+model BankCard {
+  id                 String              @id @default(cuid())
+  userId             String
+  bankName           String
+  cardNumber         String
+  accountName        String
+  isDefault          Boolean             @default(false)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  withdrawalRequests WithdrawalRequest[]
+
+  @@index([userId], map: "BankCard_userId_idx")
+  @@map("bankcard")
+}
+
+model UsdtWallet {
+  id            String   @id @default(cuid())
+  userId        String
+  walletAddress String
+  walletName    String
+  network       String   // "TRC20" or "ERC20"
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "UsdtWallet_userId_idx")
+  @@map("usdtwallet")
+}
+
+model Order {
+  id               String    @id @default(cuid())
+  userId           String
+  clientRequestId  String?
+  orderNumber      String    @unique(map: "Order_orderNumber_key")
+  productId        Int
+  productName      String
+  productPrice     Float
+  commissionRate   Float
+  commissionAmount Float
+  brand            String?
+  category         String?
+  image            String?   @db.Text
+  status           String    @default("pending")
+  completedAt      DateTime?
+  orderDate        DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id])
+
+  @@unique([userId, clientRequestId], map: "Order_userId_clientRequestId_key")
+  @@index([status], map: "Order_status_idx")
+  @@index([userId, orderDate], map: "Order_userId_orderDate_idx")
+  @@index([userId, productId, orderDate], map: "Order_userId_productId_orderDate_idx")
+  @@map("order")
+}
+
+model Admin {
+  id          String    @id @default(cuid())
+  username    String    @unique(map: "Admin_username_key")
+  fullName    String?   @default("")
+  email       String    @unique(map: "Admin_email_key")
+  phoneNumber String?   @default("")
+  password    String
+  role        String    @default("admin")
+  isActive    Boolean   @default(true)
+  lastLogin   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  avatar      String?   @default("") @db.Text
+
+  @@map("admin")
+}
+
+model ChatThread {
+  id              String        @id @default(cuid())
+  userId          String
+  userIp          String?       @default("")
+  userLatitude    Float?
+  userLongitude   Float?
+  userGpsLocation String?       @db.Text
+  userGpsUpdatedAt DateTime?
+  lastMessageAt   DateTime      @default(now())
+  lastMessageText String?       @db.Text
+  unreadForAdmin  Int           @default(0)
+  unreadForUser   Int           @default(0)
+  status          String        @default("open")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  messages        ChatMessage[]
+  user            User          @relation(fields: [userId], references: [id])
+
+  @@index([lastMessageAt], map: "ChatThread_lastMessageAt_idx")
+  @@index([userId, lastMessageAt], map: "ChatThread_userId_lastMessageAt_idx")
+  @@map("chatthread")
+}
+
+model ChatMessage {
+  id                String     @id @default(cuid())
+  threadId          String
+  senderType        String
+  senderId          String
+  text              String?    @default("") @db.Text
+  imageUrl          String?    @default("") @db.Text
+  readByAdmin       Boolean    @default(false)
+  readByUser        Boolean    @default(false)
+  isDeletedForUser  Boolean    @default(false)
+  deletedForUserAt  DateTime?
+  isDeletedForAdmin Boolean    @default(false)
+  deletedForAdminAt DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  thread            ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId], map: "ChatMessage_threadId_idx")
+  @@map("chatmessage")
+}
+
+model DepositRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  amount          Float
+  status          String    @default("pending")
+  requestDate     DateTime  @default(now())
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?   @db.Text
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation("UserDeposits", fields: [userId], references: [id])
+
+  @@index([status, requestDate], map: "DepositRequest_status_requestDate_idx")
+  @@index([userId, status], map: "DepositRequest_userId_status_idx")
+  @@map("depositrequest")
+}
+
+model WithdrawalRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  amount          Float
+  bankCardId      String?
+  status          String    @default("pending")
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?   @db.Text
+  notes           String?   @db.Text
+  requestDate     DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  network         String?
+  walletAddress   String?
+  withdrawalType  String    @default("bank")
+  bankCard        BankCard? @relation(fields: [bankCardId], references: [id])
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@index([status, requestDate], map: "WithdrawalRequest_status_requestDate_idx")
+  @@index([userId, status], map: "WithdrawalRequest_userId_status_idx")
+  @@index([bankCardId], map: "withdrawalrequest_bankCardId_fkey")
+  @@map("withdrawalrequest")
+}
+
+model Product {
+  id         Int      @id @default(autoincrement())
+  name       String
+  brand      String
+  category   String
+  price      Float
+  image      String?  @db.Text
+  productUrl String?  @db.Text
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([category], map: "Product_category_idx")
+  @@index([isActive], map: "Product_isActive_idx")
+  @@map("product")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String   @db.Text
+  type      String   @default("info") // "info", "success", "warning", "error"
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notification")
+}

@@ -1,0 +1,102 @@
+{
+  "title": "Đơn hàng",
+  "purchaseOrder": "Đặt hàng",
+  "processing": "Đang xử lý...",
+  "clickToOrder": "Nhấn nút để đặt hàng ngay",
+  "commissionEarned": "Hoa hồng kiếm được",
+  "availableBalance": "Số dư khả dụng",
+  "todaysTasks": "Nhiệm vụ hôm nay",
+  "completedToday": "Hoàn thành hôm nay",
+  "ordersReceived": "Đơn hàng đã nhận",
+  "availableProducts": "Sản phẩm có sẵn",
+  "popup": {
+    "title": "Đơn hàng đang xử lý",
+    "queueMessage": "Nhiều người dùng đang cạnh tranh đơn hàng ở cấp độ hiện tại của bạn.",
+    "vipTip": "Mẹo: Nâng cấp VIP của bạn có thể giúp bạn nhận đơn hàng nhanh hơn, và hoa hồng được nhiều hơn",
+    "cancelQueue": "Hủy hàng đợi"
+  },
+  "confirmation": {
+    "title": "Xác nhận đơn hàng",
+    "orderNumber": "Mã đơn hàng:",
+    "commissionRate": "Tỷ lệ hoa hồng:",
+    "profitFromOrder": "Lợi nhuận từ đơn hàng:",
+    "later": "Để sau",
+    "close": "Đóng",
+    "confirmOrder": "Xác nhận đơn hàng",
+    "processing": "Đang xử lý..."
+  },
+  "notifications": {
+    "noProducts": "Không có sản phẩm nào trong phạm vi số dư của bạn. Vui lòng nạp tiền.",
+    "yourBalance": "Số dư của bạn: ${{balance}}",
+    "insufficientBalance": "Số dư không đủ! Cần ${{need}} nhưng bạn chỉ có ${{have}}. Vui lòng nạp tiền.",
+    "orderSuccess": "Đặt hàng thành công!",
+    "commission": "Hoa hồng: +${{amount}}",
+    "noCommission": "Đơn hàng đã đặt! Không có hoa hồng",
+    "vip0Warning": "Bạn là VIP 0. Nâng cấp lên VIP 1+ để kiếm hoa hồng!",
+    "upgradeVip": "Nâng cấp VIP"
+  },
+  "tabs": {
+    "all": "Tất cả",
+    "pending": "Chờ xử lý",
+    "completed": "Hoàn thành",
+    "cancelled": "Đã hủy",
+    "suspended": "Bị treo"
+  },
+  "status": {
+    "pending": "Chờ xử lý",
+    "completed": "Hoàn thành",
+    "cancelled": "Đã hủy",
+    "processing": "Đang xử lý",
+    "suspended": "Bị treo"
+  },
+  "details": {
+    "orderNumber": "Đơn hàng #",
+    "product": "Sản phẩm",
+    "amount": "Số tiền",
+    "commission": "Hoa hồng",
+    "date": "Ngày",
+    "status": "Trạng thái"
+  },
+  "actions": {
+    "viewDetails": "Xem chi tiết",
+    "complete": "Hoàn thành đơn",
+    "cancel": "Hủy"
+  },
+  "empty": {
+    "title": "Chưa có đơn hàng",
+    "description": "Bắt đầu mua sắm để xem đơn hàng tại đây"
+  },
+  "stats": {
+    "total": "Tổng đơn hàng",
+    "completed": "Hoàn thành",
+    "pending": "Chờ xử lý",
+    "earnings": "Tổng thu nhập"
+  },
+  "loadMore": "Xem thêm",
+  "showLess": "Thu gọn",
+  "frozen": {
+    "title": "Tài khoản bị đóng băng",
+    "message": "Tài khoản của bạn đã bị đóng băng do số dư không đủ.",
+    "frozenBalance": "Số dư bị đóng băng",
+    "reason": "Lý do",
+    "contactAdmin": "Vui lòng liên hệ admin hoặc nạp thêm để mở khóa tài khoản.",
+    "topUpNow": "Nạp tiền ngay",
+    "contactSupport": "Liên hệ hỗ trợ",
+    "orderSuspended": "Tài khoản bị đóng băng",
+    "orderSuspendedMessage": "Đơn hàng của bạn đã bị treo do số dư không đủ. Giá sản phẩm (${{price}}) vượt quá số dư khả dụng (${{balance}}). Vui lòng nạp tiền để mở khóa tài khoản.",
+    "orderStatus": "Trạng thái đơn hàng",
+    "accountFrozenTitle": "Tài khoản bị đóng băng",
+    "accountFrozenDetail": "Đơn hàng này đã bị treo do số dư không đủ. Giá sản phẩm: ${{price}}, Số dư hiện tại: ${{balance}}. Bạn cần nạp thêm ${{needed}} để mở khóa tài khoản và hoàn thành đơn hàng.",
+    "cannotOrderWhileFrozen": "Không thể đặt hàng khi tài khoản bị đóng băng",
+    "pleaseTopUpFirst": "Vui lòng nạp tiền để mở khóa tài khoản trước khi đặt hàng.",
+    "accountLocked": "Tài khoản bị khóa",
+    "readyToResolveTitle": "Đơn hàng bị treo đã đủ số dư",
+    "readyToResolveMessage": "Số dư hiện tại (${{balance}}) đã đủ để hoàn thành đơn hàng (${{price}}). Vui lòng xác nhận đơn hàng để mở khóa tài khoản.",
+    "confirmSuspendedOrder": "Xác nhận đơn hàng bị treo",
+    "resolveNow": "Xác nhận ngay",
+    "suspendedSuccess": "Đơn hàng bị treo đã được hoàn tất thành công và tài khoản đã được mở khóa!",
+    "balanceSufficient": "Số dư của bạn đã đủ để hoàn thành đơn hàng này. Vui lòng bấm Xác nhận đơn hàng để mở khóa tài khoản.",
+    "neededToTopUp": "Cần nạp thêm: ${{needed}}",
+    "viewSuspendedOrder": "Xem đơn bị treo"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "title": "Orders",
+  "purchaseOrder": "Purchase Order",
+  "processing": "Processing...",
+  "clickToOrder": "Click the button to place an order now",
+  "commissionEarned": "Commission Earned",
+  "availableBalance": "Available Balance",
+  "todaysTasks": "Today's Tasks",
+  "completedToday": "Completed Today",
+  "ordersReceived": "Orders Received",
+  "availableProducts": "Available Products",
+  "popup": {
+    "title": "Order is processing",
+    "queueMessage": "Many users are competing for orders at your current level.",
+    "vipTip": "Tip: Upgrading your VIP level may help you receive orders faster and unlock more benefits.",
+    "cancelQueue": "Cancel queue"
+  },
+  "confirmation": {
+    "title": "Order confirmation",
+    "orderNumber": "Order Number:",
+    "commissionRate": "Commission Rate:",
+    "profitFromOrder": "Profit from this order:",
+    "later": "Later",
+    "close": "Close",
+    "confirmOrder": "Confirm Order",
+    "processing": "Processing..."
+  },
+  "notifications": {
+    "noProducts": "No products available within your balance. Please top up.",
+    "yourBalance": "Your balance: ${{balance}}",
+    "insufficientBalance": "Insufficient balance! Need ${{need}} but you only have ${{have}}. Please top up.",
+    "orderSuccess": "Order placed successfully!",
+    "commission": "Commission: +${{amount}}",
+    "noCommission": "Order placed! No commission earned",
+    "vip0Warning": "You are VIP 0. Upgrade to VIP 1+ to earn commission!",
+    "upgradeVip": "Upgrade VIP"
+  },
+  "tabs": {
+    "all": "All",
+    "pending": "Pending",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+    "suspended": "Suspended"
+  },
+  "status": {
+    "pending": "Pending",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+    "processing": "Processing",
+    "suspended": "Suspended"
+  },
+  "details": {
+    "orderNumber": "Order #",
+    "product": "Product",
+    "amount": "Amount",
+    "commission": "Commission",
+    "date": "Date",
+    "status": "Status"
+  },
+  "actions": {
+    "viewDetails": "View Details",
+    "complete": "Complete Order",
+    "cancel": "Cancel"
+  },
+  "empty": {
+    "title": "No orders yet",
+    "description": "Start shopping to see your orders here"
+  },
+  "stats": {
+    "total": "Total Orders",
+    "completed": "Completed",
+    "pending": "Pending",
+    "earnings": "Total Earnings"
+  },
+  "loadMore": "Load More",
+  "showLess": "Show Less",
+  "frozen": {
+    "title": "Account Frozen",
+    "message": "Your account has been frozen due to insufficient balance.",
+    "frozenBalance": "Frozen Balance",
+    "reason": "Reason",
+    "contactAdmin": "Please contact admin or top up to unlock your account.",
+    "topUpNow": "Top Up Now",
+    "contactSupport": "Contact Support",
+    "orderSuspended": "Account Frozen",
+    "orderSuspendedMessage": "Your order has been suspended due to insufficient balance. Product price (${{price}}) exceeds your available balance (${{balance}}). Please top up to unlock your account.",
+    "orderStatus": "Order Status",
+    "accountFrozenTitle": "Account Frozen",
+    "accountFrozenDetail": "This order has been suspended due to insufficient balance. Product price: ${{price}}, Current balance: ${{balance}}. You need to top up ${{needed}} to unlock your account and complete the order.",
+    "cannotOrderWhileFrozen": "Cannot place order while account is frozen",
+    "pleaseTopUpFirst": "Please top up to unlock your account before placing orders.",
+    "accountLocked": "Account Locked",
+    "readyToResolveTitle": "Suspended Order Ready to Complete",
+    "readyToResolveMessage": "Current balance (${{balance}}) is sufficient to complete the order (${{price}}). Please confirm the order to unlock your account.",
+    "confirmSuspendedOrder": "Confirm Suspended Order",
+    "resolveNow": "Confirm Now",
+    "suspendedSuccess": "Suspended order completed successfully and account unlocked!",
+    "balanceSufficient": "Your balance is sufficient to complete this order. Please click Confirm Order to unlock your account.",
+    "neededToTopUp": "Need to top up: ${{needed}}",
+    "viewSuspendedOrder": "View Suspended Order"
+  }
+}

@@ -1,0 +1,886 @@
+const express = require('express');
+const router = express.Router();
+const prisma = require('../lib/prisma');
+const { getVipLevelByAmount, VIP_LEVELS } = require('../config/vipLevels');
+const { authenticateToken } = require('../middleware/auth');
+const {
+  parseJsonField,
+  getDateKey,
+  getTodayRange,
+  resolveCommissionRate,
+  resolveDailyTarget,
+  resolveNumberOfOrders,
+  resolveAutoFreezeThreshold,
+  getFreezeConfig
+} = require('../lib/utils');
+const { getUserStats, getOrdersPaginated } = require('../lib/optimized-queries'); // ⚡ Optimized queries
+
+// Generate order number: ASH + timestamp + random 3 digits
+function generateOrderNumber() {
+  const timestamp = Date.now().toString();
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `ASH${timestamp.slice(-8)}${random}`;
+}
+
+// Helper to build consistent order response
+function buildOrderResponse(order, user, todayOrdersCount, dailyEarnings) {
+  return {
+    newCommission: user.commission,
+    newBalance: user.balance,
+    newCompletedToday: todayOrdersCount,
+    newOrdersGrabbed: todayOrdersCount,
+    selectedProduct: {
+      productName: order.productName,
+      productPrice: order.productPrice,
+      commissionAmount: order.commissionAmount,
+      commissionRate: order.commissionRate,
+      brand: order.brand,
+      productId: order.productId,
+      category: order.category,
+      image: order.image
+    },
+    order: {
+      id: order.id,
+      status: order.status,
+      orderDate: order.orderDate
+    },
+    dailyEarnings
+  };
+}
+
+// Simplified: pick daily target from VIP level
+function pickDailyTarget(user, vipLevel) {
+  const target = resolveDailyTarget(user, vipLevel);
+  return { mode: 'fixed', targetTotal: target };
+}
+
+// GET /api/orders/stats - Get user order statistics
+router.get('/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Get today's date range
+    const { start: startOfDay, end: endOfDay } = getTodayRange();
+
+    // Get today's orders
+    const todayOrders = await prisma.order.findMany({
+      where: {
+        userId: userId,
+        orderDate: { gte: startOfDay, lt: endOfDay }
+      }
+    });
+
+    const completedOrders = todayOrders.filter(order => order.status === 'delivered');
+    const totalCommission = completedOrders.reduce((sum, order) => sum + order.commissionAmount, 0);
+
+    // Get VIP level info
+    const vipLevel = VIP_LEVELS.find(level => level.id === user.vipLevel) || VIP_LEVELS.find(level => level.id === 'vip-0');
+    const commissionRate = resolveCommissionRate(user, vipLevel);
+    const dailyTarget = resolveDailyTarget(user, vipLevel);
+    const numberOfOrders = resolveNumberOfOrders(user, vipLevel);
+
+    // Today's earned commission from user's dailyEarnings
+    const todayKey = getDateKey();
+    const dailyEarnings = parseJsonField(user.dailyEarnings, {});
+    const isToday = dailyEarnings.dateKey === todayKey;
+    const dailyEarningsToday = {
+      totalCommission: isToday ? Number(dailyEarnings.totalCommission || 0) : 0,
+      ordersCount: isToday ? Number(dailyEarnings.ordersCount || 0) : 0,
+      targetTotal: isToday ? Number(dailyEarnings.targetTotal || 0) : 0,
+      numberOfOrders: isToday ? Number(dailyEarnings.numberOfOrders || 0) : 0,
+      mode: isToday ? (dailyEarnings.mode || 'auto') : 'auto',
+      dateKey: todayKey
+    };
+
+    // Check commissionConfig overrides first, then snapshot, then defaults
+    const userConfig = parseJsonField(user.commissionConfig, {});
+    const effectiveNumberOfOrders = (userConfig.numberOfOrders != null && Number(userConfig.numberOfOrders) > 0)
+      ? Number(userConfig.numberOfOrders)
+      : (isToday && dailyEarnings.numberOfOrders > 0)
+        ? dailyEarnings.numberOfOrders
+        : numberOfOrders;
+
+    const effectiveDailyTarget = (userConfig.dailyTarget != null && Number(userConfig.dailyTarget) > 0)
+      ? Number(userConfig.dailyTarget)
+      : (isToday && dailyEarnings.targetTotal > 0)
+        ? dailyEarnings.targetTotal
+        : dailyTarget;
+
+    // Calculate freeze threshold for frontend
+    // ✅ Send threshold if admin configured freeze (with or without target product)
+    let freezeThreshold = null;
+    let freezeTargetProductId = null;
+
+    if (user.vipLevel !== 'vip-0' && !user.isFrozen && effectiveNumberOfOrders > 0) {
+      const commissionConfig = parseJsonField(user.commissionConfig, {});
+      const freezeConfig = getFreezeConfig(user);
+
+      if (freezeConfig.enabled) {
+        if (freezeConfig.mode === 'custom' && freezeConfig.threshold != null && freezeConfig.threshold > 0) {
+          freezeThreshold = freezeConfig.threshold;
+        } else if (freezeConfig.mode === 'random') {
+          if (commissionConfig.randomFreezeThreshold) {
+            freezeThreshold = commissionConfig.randomFreezeThreshold;
+          } else {
+            const min = Math.max(1, Math.floor(effectiveNumberOfOrders * 0.8));
+            const max = Math.max(min, Math.floor(effectiveNumberOfOrders * 0.9));
+            freezeThreshold = Math.floor(min + Math.random() * (max - min + 1));
+            commissionConfig.randomFreezeThreshold = freezeThreshold;
+            await prisma.user.update({
+              where: { id: userId },
+              data: { commissionConfig: JSON.stringify(commissionConfig) }
+            }).catch(e => console.error('Failed to save randomFreezeThreshold:', e));
+          }
+        }
+        freezeTargetProductId = freezeConfig.targetProductId || null;
+      }
+    }
+
+    // Check for any suspended order across ALL TIME for this user
+    let suspendedOrder = await prisma.order.findFirst({
+      where: {
+        userId: userId,
+        status: 'suspended'
+      },
+      orderBy: { orderDate: 'desc' }
+    });
+
+    const totalUserBalance = Number(user.balance || 0) + Number(user.freezeBalance || 0) + Number(user.frozenBalance || 0);
+
+    // ⚡ If user has enough balance to cover suspended order, auto-resolve it!
+    if (suspendedOrder && totalUserBalance >= suspendedOrder.productPrice) {
+      console.log(`[Orders/stats] Auto-resolving suspended order ${suspendedOrder.id} for user ${user.phoneNumber} (Balance: ${totalUserBalance} >= ${suspendedOrder.productPrice})`);
+      const earnedCommission = Number(suspendedOrder.commissionAmount || 0);
+      const finalBalance = totalUserBalance + earnedCommission;
+
+      let currentConfig = parseJsonField(user.commissionConfig, {});
+      delete currentConfig.freezeTargetProductId;
+      delete currentConfig.freezeTargetPrice;
+      delete currentConfig.autoFreezeThreshold;
+
+      try {
+        await prisma.$transaction([
+          prisma.order.update({
+            where: { id: suspendedOrder.id },
+            data: { status: 'pending' }
+          }),
+          prisma.user.update({
+            where: { id: userId },
+            data: {
+              isFrozen: false,
+              balance: finalBalance,
+              frozenBalance: 0,
+              freezeBalance: 0,
+              frozenReason: null,
+              unfrozenAt: new Date(),
+              commission: { increment: earnedCommission },
+              commissionConfig: JSON.stringify(currentConfig)
+            }
+          })
+        ]);
+
+        user.isFrozen = false;
+        user.balance = finalBalance;
+        user.frozenBalance = 0;
+        user.freezeBalance = 0;
+        user.commission += earnedCommission;
+        suspendedOrder = null;
+      } catch (autoResolveErr) {
+        console.error('[Orders/stats] Failed to auto-resolve suspended order:', autoResolveErr);
+      }
+    }
+
+    const neededAmount = suspendedOrder ? Math.max(0, suspendedOrder.productPrice - totalUserBalance) : 0;
+    const canResolve = suspendedOrder ? totalUserBalance >= suspendedOrder.productPrice : true;
+
+    res.json({
+      success: true,
+      data: {
+        commission: user.commission + totalCommission,
+        balance: user.balance,
+        freezeBalance: user.freezeBalance,
+        totalDailyTasks: effectiveNumberOfOrders,
+        completedToday: todayOrders.length, // ✅ Same as ordersGrabbed - orders are auto-completed
+        ordersGrabbed: todayOrders.length, // ✅ All orders grabbed (any status)
+        vipLevel: user.vipLevel,
+        commissionRate, // Percentage rate (e.g., 0.012 = 1.2%)
+        dailyTarget: effectiveDailyTarget,
+        commissionConfig: parseJsonField(user.commissionConfig, {}),
+        dailyEarnings: dailyEarningsToday,
+        freezeThreshold, // Threshold order number where freeze may trigger
+        freezeTargetProductId, // Admin-specified product for freeze
+        isFrozen: user.isFrozen || Boolean(suspendedOrder),
+        frozenReason: user.frozenReason,
+        suspendedOrder: suspendedOrder ? {
+          id: suspendedOrder.id,
+          orderNumber: suspendedOrder.orderNumber,
+          productName: suspendedOrder.productName,
+          productPrice: suspendedOrder.productPrice,
+          commissionAmount: suspendedOrder.commissionAmount,
+          image: suspendedOrder.image || '',
+          orderDate: suspendedOrder.orderDate,
+          totalBalance: totalUserBalance,
+          neededAmount,
+          canResolve
+        } : null,
+        resetTime: endOfDay.toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching order stats:', error);
+    res.status(500).json({ success: false, message: 'Error fetching order statistics' });
+  }
+});
+
+// POST /api/orders/take - Take a new order
+router.post('/take', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    console.log('[Orders/take] userId from token:', userId);
+
+    const clientProduct = req.body?.product;
+    const clientRequestId = (req.headers['x-idempotency-key'] || req.body?.idempotencyKey || '').toString().trim() || null;
+    console.log('[Orders/take] Idempotency key:', clientRequestId);
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    console.log('[Orders/take] user found:', user ? 'yes' : 'no');
+
+    if (!user) {
+      console.log('[Orders/take] User not found for id:', userId);
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // 🔒 1. Check if user account is frozen
+    if (user.isFrozen) {
+      console.log('[Orders/take] ❌ Blocked: Account is frozen for user:', userId);
+      return res.status(403).json({
+        success: false,
+        message: 'Account is frozen',
+        error: {
+          code: 'ACCOUNT_FROZEN',
+          frozenBalance: user.frozenBalance,
+          frozenAt: user.frozenAt,
+          reason: user.frozenReason || 'Your account is frozen. Please contact admin or top up to unlock.'
+        }
+      });
+    }
+
+    // 🔒 2. Check if user has ANY suspended order across ALL TIME (regardless of day/reset)
+    const existingSuspended = await prisma.order.findFirst({
+      where: {
+        userId: userId,
+        status: 'suspended'
+      },
+      orderBy: { orderDate: 'desc' }
+    });
+
+    if (existingSuspended) {
+      console.log('[Orders/take] ❌ Blocked: User has existing suspended order:', existingSuspended.id);
+      return res.status(403).json({
+        success: false,
+        message: 'You have a suspended order that must be resolved first',
+        error: {
+          code: 'ORDER_SUSPENDED',
+          orderId: existingSuspended.id,
+          orderNumber: existingSuspended.orderNumber,
+          productPrice: existingSuspended.productPrice,
+          productName: existingSuspended.productName,
+          orderDate: existingSuspended.orderDate
+        }
+      });
+    }
+
+    // Get today's date range
+    const { start: startOfDay, end: endOfDay } = getTodayRange();
+
+    // Get today's orders
+    const todayOrders = await prisma.order.findMany({
+      where: {
+        userId: userId,
+        orderDate: { gte: startOfDay, lt: endOfDay }
+      }
+    });
+
+    // Get VIP level
+    const vipLevel = VIP_LEVELS.find(level => level.id === user.vipLevel) || VIP_LEVELS.find(level => level.id === 'vip-0');
+    const todayKey = getDateKey();
+    const dailyEarnings = parseJsonField(user.dailyEarnings, {});
+    const isToday = dailyEarnings.dateKey === todayKey;
+
+    const userConfig = parseJsonField(user.commissionConfig, {});
+
+    // Get dynamic order limit: admin config override > snapshot today > VIP default
+    const effectiveOrdersLimit = (userConfig.numberOfOrders != null && Number(userConfig.numberOfOrders) > 0)
+      ? Number(userConfig.numberOfOrders)
+      : (isToday && dailyEarnings.numberOfOrders > 0)
+        ? dailyEarnings.numberOfOrders
+        : resolveNumberOfOrders(user, vipLevel);
+    
+    // Get daily target: admin config override > snapshot today > VIP default
+    const dailyTarget = (userConfig.dailyTarget != null && Number(userConfig.dailyTarget) > 0)
+      ? Number(userConfig.dailyTarget)
+      : (isToday && dailyEarnings.targetTotal > 0)
+        ? dailyEarnings.targetTotal
+        : resolveDailyTarget(user, vipLevel);
+    
+    // Calculate today's total commission
+    const todayTotalCommission = todayOrders.reduce((sum, order) => sum + order.commissionAmount, 0);
+
+    // STRICT: Stop when reaching order limit (no exceeding)
+    if (todayOrders.length >= effectiveOrdersLimit) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Daily order limit reached (${effectiveOrdersLimit} orders)` 
+      });
+    }
+
+    // Get commission rate
+    const commissionRate = resolveCommissionRate(user, vipLevel);
+
+    // Require client to send product
+    if (!clientProduct) {
+      return res.status(400).json({ success: false, message: 'Product is required' });
+    }
+
+    const { id, name, price, brand, category, image } = clientProduct;
+    if (!id || !name || !price || !brand || !category || !image) {
+      return res.status(400).json({ success: false, message: 'Invalid product payload' });
+    }
+    // Note: We allow price > balance at freeze threshold (frontend filters this)
+    // Backend will check both conditions: order count + price > balance
+    const randomProduct = { id, name, price: Number(price), brand, category, image };
+
+    // ============================================
+    // 🔒 FREEZE MECHANISM - ADMIN CONTROLLED ONLY
+    // ============================================
+    // Freeze ONLY happens when admin explicitly enables it for the user
+    // Two modes available:
+    // 1. 'random' - Freeze at 80-90% of max orders (random)
+    // 2. 'custom' - Freeze at specific order number
+    // Applied to all VIP levels (except VIP 0)
+    let shouldFreeze = false;
+    let freezeTrigger = null;
+
+    if (user.vipLevel !== 'vip-0' && !user.isFrozen && effectiveOrdersLimit > 0) {
+      // Get freeze config from admin settings
+      const freezeConfig = getFreezeConfig(user);
+
+      // Only proceed if admin has ENABLED freeze for this user
+      if (freezeConfig.enabled) {
+        if (freezeConfig.mode === 'random') {
+          // Random 80-90% of max orders
+          const commissionConfig = parseJsonField(user.commissionConfig, {});
+          if (commissionConfig.randomFreezeThreshold) {
+            freezeTrigger = commissionConfig.randomFreezeThreshold;
+          } else {
+            const min = Math.max(1, Math.floor(effectiveOrdersLimit * 0.8));
+            const max = Math.max(min, Math.floor(effectiveOrdersLimit * 0.9));
+            freezeTrigger = Math.floor(min + Math.random() * (max - min + 1));
+          }
+          console.log(`[Orders/take] ${user.vipLevel.toUpperCase()} freeze check: ${todayOrders.length}/${freezeTrigger} orders (RANDOM mode)`);
+        } else if (freezeConfig.mode === 'custom' && freezeConfig.threshold != null) {
+          // Use admin's custom threshold
+          freezeTrigger = freezeConfig.threshold;
+          console.log(`[Orders/take] ${user.vipLevel.toUpperCase()} freeze check: ${todayOrders.length}/${freezeTrigger} orders (CUSTOM threshold)`);
+        }
+
+        // Check BOTH conditions: order count reached AND product price exceeds balance
+        if (freezeTrigger != null) {
+          const nextOrderNumber = todayOrders.length + 1;
+          const isAtOrPastThreshold = nextOrderNumber >= freezeTrigger;
+          const isPriceHighEnough = Number(randomProduct.price) > user.balance;
+
+          console.log(`[Orders/take] Freeze evaluation for User ${user.phoneNumber}:`);
+          console.log(`  - Order Number: ${nextOrderNumber}`);
+          console.log(`  - Threshold: ${freezeTrigger} (Mode: ${freezeConfig.mode})`);
+          console.log(`  - Price: ${randomProduct.price} vs Balance: ${user.balance}`);
+          console.log(`  - Condition met: AtThreshold=${isAtOrPastThreshold}, PriceTrigger=${isPriceHighEnough}`);
+
+          if (isAtOrPastThreshold && isPriceHighEnough) {
+            shouldFreeze = true;
+            console.log('[Orders/take] 🔒 FREEZE TRIGGERED: Conditions met');
+          } else if (isAtOrPastThreshold && !isPriceHighEnough) {
+            console.log('[Orders/take] ⚠️ Threshold reached but product price too low. Freeze pending for next expensive product.');
+          }
+        }
+      } else {
+        console.log(`[Orders/take] ${user.vipLevel.toUpperCase()} - Freeze NOT enabled by admin`);
+      }
+    }
+
+    // Check if account is frozen
+    if (user.isFrozen) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is frozen',
+        error: {
+          code: 'ACCOUNT_FROZEN',
+          frozenBalance: user.frozenBalance,
+          frozenAt: user.frozenAt,
+          reason: user.frozenReason || 'Your account is frozen. Please contact admin or top up to unlock.'
+        }
+      });
+    }
+
+    // Initialize/reset daily earnings for today - SNAPSHOT config at first order of day
+    let currentDailyEarnings = dailyEarnings;
+    if (currentDailyEarnings.dateKey !== todayKey) {
+      const snapshotNumberOfOrders = resolveNumberOfOrders(user, vipLevel);
+      currentDailyEarnings = {
+        dateKey: todayKey,
+        totalCommission: 0,
+        ordersCount: 0,
+        numberOfOrders: snapshotNumberOfOrders  // Snapshot at first order of day
+      };
+    }
+
+    // ============================================
+    // 🎯 SMART PRODUCT SELECTION ALGORITHM
+    // ============================================
+    // Goal: Select products to reach BOTH targets (orders + commission) optimally
+    // Strategy: Adjust commission based on remaining orders and commission gap
+    
+    const ordersRemaining = effectiveOrdersLimit - todayOrders.length;
+    const commissionRemaining = dailyTarget - todayTotalCommission;
+    const avgCommissionNeeded = commissionRemaining / ordersRemaining;
+    
+    console.log(`[Orders/take] Smart Selection - Orders: ${todayOrders.length}/${effectiveOrdersLimit}, Commission: $${todayTotalCommission.toFixed(2)}/$${dailyTarget}`);
+    console.log(`[Orders/take] Remaining: ${ordersRemaining} orders, $${commissionRemaining.toFixed(2)} commission`);
+    console.log(`[Orders/take] Average needed per order: $${avgCommissionNeeded.toFixed(2)}`);
+
+    // Calculate commission based on product price and VIP rate
+    // This ensures profit is proportional to the item value
+    const productPrice = randomProduct.price;
+    const baseCommission = Math.max(0.01, Math.round(productPrice * commissionRate * 0.9 * 100) / 100);
+
+    // Check if admin specified a custom per-order amount
+    const customPerOrder = (userConfig.perOrderAmount != null && Number(userConfig.perOrderAmount) > 0)
+      ? Number(userConfig.perOrderAmount)
+      : null;
+
+    let commissionAmount = customPerOrder !== null ? customPerOrder : baseCommission;
+
+    // 🎯 SMART ADJUSTMENT: Adjust commission to help meet target if remaining budget exists
+    if (ordersRemaining > 0 && commissionRemaining > 0 && customPerOrder === null) {
+      if (ordersRemaining <= 10) {
+        // Last 10 orders: adjust commission more aggressively towards target
+        const targetCommission = avgCommissionNeeded;
+        const adjustmentFactor = targetCommission / commissionAmount;
+        
+        // Allow adjustment within reasonable range (0.8x to 1.5x)
+        if (adjustmentFactor >= 0.8 && adjustmentFactor <= 1.5) {
+          commissionAmount = Math.round(targetCommission * 100) / 100;
+          console.log(`[Orders/take] 🎯 Smart adjustment applied: $${commissionAmount.toFixed(2)} (factor: ${adjustmentFactor.toFixed(2)})`);
+        }
+      }
+    }
+
+    // 🛡️ CRITICAL GUARANTEE: Never allow commission to fall below base VIP commission or 0!
+    // Even if daily target was already reached/exceeded, paying user ALWAYS earns at least their base VIP commission!
+    const minGuaranteedCommission = customPerOrder !== null ? customPerOrder : baseCommission;
+    if (commissionAmount < minGuaranteedCommission) {
+      commissionAmount = minGuaranteedCommission;
+    }
+    // VIP 0 cannot earn commission
+    if (user.vipLevel === 'vip-0' || commissionRate <= 0) {
+      commissionAmount = 0;
+    }
+
+    // ============================================
+    // DUPLICATE DETECTION - BEFORE TRANSACTION
+    // ============================================
+
+    // Check idempotency key BEFORE transaction
+    if (clientRequestId) {
+      const existingByKey = await prisma.order.findFirst({
+        where: { userId, clientRequestId }
+      });
+      if (existingByKey) {
+        console.log('[Orders/take] ✅ Duplicate detected via idempotency key:', clientRequestId);
+        return res.json({
+          success: true,
+          data: buildOrderResponse(existingByKey, user, todayOrders.length, currentDailyEarnings)
+        });
+      }
+    }
+
+    // Check for same product within last 5 minutes BEFORE transaction
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const existingByTime = await prisma.order.findFirst({
+      where: {
+        userId,
+        productId: parseInt(randomProduct.id),
+        orderDate: { gte: fiveMinutesAgo }
+      }
+    });
+
+    if (existingByTime) {
+      console.log('[Orders/take] ✅ Duplicate detected: same product within 5 minutes, productId:', randomProduct.id);
+      return res.json({
+        success: true,
+        data: buildOrderResponse(existingByTime, user, todayOrders.length, currentDailyEarnings)
+      });
+    }
+
+    // ============================================
+    // CREATE ORDER - START TRANSACTION
+    // ============================================
+
+    // Create order and update user in transaction
+    let result;
+    try {
+      result = await prisma.$transaction(async (tx) => {
+        // Determine order status based on freeze condition
+        const orderStatus = shouldFreeze ? 'suspended' : 'pending';
+
+        const newOrder = await tx.order.create({
+          data: {
+            userId,
+            clientRequestId, // ✅ Store the key directly (not undefined)
+            orderNumber: generateOrderNumber(),
+            productId: parseInt(randomProduct.id),
+            productName: randomProduct.name ? randomProduct.name.slice(0, 191) : '',
+            productPrice: randomProduct.price,
+            commissionRate: commissionRate,
+            commissionAmount,
+            brand: randomProduct.brand,
+            category: randomProduct.category,
+            image: randomProduct.image,
+            status: orderStatus, // 'suspended' if freeze triggered, otherwise 'pending'
+            orderDate: new Date()
+          }
+        });
+
+        // Only credit user if NOT freezing
+        let updatedUser;
+        if (!shouldFreeze) {
+          const creditedCommission = commissionAmount;
+          currentDailyEarnings.totalCommission = Math.round((currentDailyEarnings.totalCommission + commissionAmount) * 100) / 100;
+          currentDailyEarnings.ordersCount = (currentDailyEarnings.ordersCount || 0) + 1;
+
+          updatedUser = await tx.user.update({
+            where: { id: userId },
+            data: {
+              balance: { increment: creditedCommission },
+              commission: { increment: commissionAmount },
+              dailyEarnings: JSON.stringify(currentDailyEarnings)
+            }
+          });
+        } else {
+          // Freeze account - move balance to frozen balance
+          // Also clear target product from commission config
+          let currentConfig = {};
+          try {
+            currentConfig = user.commissionConfig ? JSON.parse(user.commissionConfig) : {};
+          } catch (e) {
+            console.error('[Orders] Failed to parse commissionConfig:', e);
+            currentConfig = {};
+          }
+          delete currentConfig.freezeTargetProductId;
+          delete currentConfig.freezeTargetPrice;
+          delete currentConfig.autoFreezeThreshold; // Also clear threshold
+
+          updatedUser = await tx.user.update({
+            where: { id: userId },
+            data: {
+              isFrozen: true,
+              frozenBalance: user.balance,
+              balance: 0,
+              frozenAt: new Date(),
+              frozenReason: `Account frozen due to insufficient balance for order. Product price (${randomProduct.price}) exceeds available balance (${user.balance}). Order is suspended. Please contact admin or top up to unlock.`,
+              dailyEarnings: JSON.stringify(currentDailyEarnings),
+              commissionConfig: JSON.stringify(currentConfig) // Clear everything
+            }
+          });
+
+          console.log('[Orders/take] ✅ Account frozen with suspended order (freeze config cleared):', {
+            userId,
+            orderId: newOrder.id,
+            orderNumber: newOrder.orderNumber,
+            vipLevel: user.vipLevel,
+            frozenBalance: user.balance,
+            ordersCompleted: todayOrders.length,
+            freezeTrigger: freezeTrigger,
+            productPrice: randomProduct.price,
+            userBalance: user.balance
+          });
+        }
+
+        return { newOrder, updatedUser };
+      });
+
+      console.log('[Orders/take] ✅ Order created successfully:', {
+        orderId: result.newOrder.id,
+        clientRequestId,
+        productId: randomProduct.id
+      });
+    } catch (transactionError) {
+      // Check if it's a unique constraint violation on clientRequestId
+      if (transactionError.code === 'P2002' &&
+        transactionError.meta?.target?.includes('clientRequestId')) {
+        console.log('[Orders/take] ⚠️ Database constraint caught duplicate:', clientRequestId);
+
+        // Fetch the existing order
+        const existing = await prisma.order.findFirst({
+          where: { userId, clientRequestId }
+        });
+
+        if (existing) {
+          return res.json({
+            success: true,
+            data: buildOrderResponse(existing, user, todayOrders.length, currentDailyEarnings)
+          });
+        }
+      }
+
+      // Re-throw if it's a different error
+      console.error('[Orders/take] ❌ Transaction error:', transactionError);
+      throw transactionError;
+    }
+
+
+    // Get updated stats
+    const updatedTodayOrders = await prisma.order.findMany({
+      where: {
+        userId,
+        orderDate: { gte: startOfDay, lt: endOfDay }
+      }
+    });
+
+    // 🔔 Emit new order notification to admins
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to('admins').emit('order:new', {
+          orderId: result.newOrder.id,
+          orderNumber: result.newOrder.orderNumber,
+          userId: userId,
+          userName: user.fullName || user.username,
+          productName: randomProduct.name,
+          productPrice: randomProduct.price,
+          createdAt: result.newOrder.orderDate
+        });
+        console.log('[Orders] Emitted order:new to admins');
+
+        // 🔔 Emit balance update to user for real-time UI update
+        io.to(`user:${userId}`).emit('balance:updated', {
+          userId: userId,
+          newBalance: result.updatedUser.balance,
+          newCommission: result.updatedUser.commission,
+          commissionIncrement: commissionAmount,
+          orderId: result.newOrder.id,
+          orderNumber: result.newOrder.orderNumber,
+          source: 'order_grab'
+        });
+        console.log('[Orders] Emitted balance:updated to user:', userId);
+      }
+    } catch (emitErr) {
+      console.error('[Orders] Failed to emit:', emitErr);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        newCommission: result.updatedUser.commission,
+        newBalance: result.updatedUser.balance,
+        newCompletedToday: updatedTodayOrders.length,
+        newOrdersGrabbed: updatedTodayOrders.length,
+        selectedProduct: {
+          productName: randomProduct.name,
+          productPrice: randomProduct.price,
+          commissionAmount,
+          commissionRate,
+          brand: randomProduct.brand,
+          productId: parseInt(randomProduct.id),
+          category: randomProduct.category,
+          image: randomProduct.image
+        },
+        order: {
+          id: result.newOrder.id,
+          status: result.newOrder.status,
+          orderDate: result.newOrder.orderDate
+        },
+        dailyEarnings: currentDailyEarnings,
+        // Add freeze notification if account was frozen
+        ...(shouldFreeze && {
+          accountFrozen: true,
+          freezeNotification: {
+            // Send data for frontend to translate, not hardcoded text
+            productPrice: randomProduct.price,
+            availableBalance: user.balance,
+            frozenBalance: user.balance,
+            orderStatus: 'suspended'
+          }
+        })
+      }
+    });
+  } catch (error) {
+    console.error('Error taking order:', error);
+    res.status(500).json({ success: false, message: 'Error taking order' });
+  }
+});
+
+// POST /api/orders/complete - Disabled (orders remain pending)
+router.post('/complete', authenticateToken, async (req, res) => {
+  return res.status(400).json({
+    success: false,
+    message: 'Auto-complete disabled. Orders remain pending until admin updates status.'
+  });
+});
+
+// POST /api/orders/resolve-suspended - Complete/resolve a suspended order when balance is sufficient
+router.post('/resolve-suspended', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { orderId } = req.body || {};
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const suspendedOrder = await prisma.order.findFirst({
+      where: {
+        userId,
+        status: 'suspended',
+        ...(orderId ? { id: String(orderId) } : {})
+      },
+      orderBy: { orderDate: 'desc' }
+    });
+
+    if (!suspendedOrder) {
+      return res.status(404).json({ success: false, message: 'No suspended order found' });
+    }
+
+    const totalBalance = Number(user.balance || 0) + Number(user.freezeBalance || 0) + Number(user.frozenBalance || 0);
+
+    if (totalBalance < suspendedOrder.productPrice) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Required $${suspendedOrder.productPrice}, currently have $${totalBalance.toFixed(2)}`,
+        needed: (suspendedOrder.productPrice - totalBalance).toFixed(2)
+      });
+    }
+
+    const earnedCommission = Number(suspendedOrder.commissionAmount || 0);
+    const finalBalance = totalBalance + earnedCommission;
+
+    let currentConfig = parseJsonField(user.commissionConfig, {});
+    delete currentConfig.freezeTargetProductId;
+    delete currentConfig.freezeTargetPrice;
+    delete currentConfig.autoFreezeThreshold;
+
+    const [updatedOrder, updatedUser] = await prisma.$transaction([
+      prisma.order.update({
+        where: { id: suspendedOrder.id },
+        data: { status: 'pending' }
+      }),
+      prisma.user.update({
+        where: { id: userId },
+        data: {
+          isFrozen: false,
+          balance: finalBalance,
+          frozenBalance: 0,
+          freezeBalance: 0,
+          frozenReason: null,
+          unfrozenAt: new Date(),
+          commission: { increment: earnedCommission },
+          commissionConfig: JSON.stringify(currentConfig)
+        }
+      })
+    ]);
+
+    // 🔔 Emit balance update to user
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`user:${userId}`).emit('balance:updated', {
+          userId,
+          newBalance: updatedUser.balance,
+          newCommission: updatedUser.commission,
+          commissionIncrement: earnedCommission,
+          orderId: updatedOrder.id,
+          orderNumber: updatedOrder.orderNumber,
+          source: 'order_resolve_suspended'
+        });
+        io.to(`user:${userId}`).emit('account:unlocked', {
+          balance: updatedUser.balance,
+          frozenBalance: 0,
+          isFrozen: false
+        });
+      }
+    } catch (e) {
+      console.error('[Orders] Failed to emit socket event:', e);
+    }
+
+    res.json({
+      success: true,
+      message: 'Suspended order confirmed and account unlocked successfully',
+      data: {
+        order: updatedOrder,
+        newBalance: updatedUser.balance,
+        newCommission: updatedUser.commission,
+        isFrozen: false
+      }
+    });
+  } catch (error) {
+    console.error('Error resolving suspended order:', error);
+    res.status(500).json({ success: false, message: 'Error resolving suspended order' });
+  }
+});
+
+// GET /api/orders/history - Get order history
+router.get('/history', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { page = 1, limit = 10, status, sortBy = 'orderDate', sortOrder = 'desc' } = req.query;
+
+    const where = { userId };
+    if (status) where.status = status;
+
+    const allowedSort = ['orderDate', 'productPrice', 'status'];
+    const sortField = allowedSort.includes(String(sortBy)) ? String(sortBy) : 'orderDate';
+    const sortDir = String(sortOrder).toLowerCase() === 'asc' ? 'asc' : 'desc';
+
+    const orders = await prisma.order.findMany({
+      where,
+      orderBy: { [sortField]: sortDir },
+      take: parseInt(limit),
+      skip: (parseInt(page) - 1) * parseInt(limit)
+    });
+
+    const total = await prisma.order.count({ where });
+
+    const items = orders.map(o => ({
+      id: o.id,
+      productId: o.productId,
+      productName: o.productName,
+      productPrice: o.productPrice,
+      commissionAmount: o.commissionAmount,
+      image: o.image || '',
+      status: o.status,
+      orderDate: o.orderDate,
+      completedAt: o.completedAt || null
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        orders: items,
+        pagination: {
+          current: parseInt(page),
+          pages: Math.ceil(total / parseInt(limit)),
+          total
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching order history:', error);
+    res.status(500).json({ success: false, message: 'Error fetching order history' });
+  }
+});
+
+module.exports = router;
