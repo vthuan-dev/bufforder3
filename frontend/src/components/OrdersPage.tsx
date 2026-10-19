@@ -69,7 +69,8 @@ export function OrdersPage() {
     });
   }, []);
 
-  // Freeze status
+  // Freeze & Account status
+  const [isActive, setIsActive] = useState<boolean>(true);
   const [isFrozen, setIsFrozen] = useState<boolean>(false);
   const [frozenBalance, setFrozenBalance] = useState<number>(0);
   const [frozenReason, setFrozenReason] = useState<string>('');
@@ -198,6 +199,9 @@ export function OrdersPage() {
 
         // Load freeze status
         setIsFrozen(Boolean(stats.data?.isFrozen));
+        if (stats.data?.isActive !== undefined) {
+          setIsActive(stats.data.isActive !== false);
+        }
         setFrozenBalance(Number(stats.data?.frozenBalance || 0));
         setFrozenReason(stats.data?.frozenReason || '');
         setFreezeThreshold(stats.data?.freezeThreshold || null);
@@ -493,6 +497,7 @@ export function OrdersPage() {
     let freshBalance = availableBalance;
     let freshFreezeThreshold = freezeThreshold;
     let freshFreezeTargetProductId = freezeTargetProductId;
+    let freshIsActive = isActive;
 
     try {
       const freshStats = await api.userOrderStats();
@@ -501,6 +506,10 @@ export function OrdersPage() {
         freshBalance = Number(freshStats.data.balance || 0);
         freshFreezeThreshold = freshStats.data?.freezeThreshold || null;
         freshFreezeTargetProductId = freshStats.data?.freezeTargetProductId || null;
+        if (freshStats.data?.isActive !== undefined) {
+          freshIsActive = freshStats.data.isActive !== false;
+          setIsActive(freshIsActive);
+        }
 
         // 🔧 FIX: Update state but use Math.max to prevent going backwards
         // This handles race conditions where API hasn't updated yet
@@ -539,6 +548,19 @@ export function OrdersPage() {
 
       if (currentStep >= 100) {
         clearInterval(interval);
+
+        // 🔒 Account suspended check: If admin set user to "Đã tạm ngưng" (isActive === false)
+        if (freshIsActive === false) {
+          console.log('[Orders] ❌ Account is suspended (isActive=false). Blocking order popup.');
+          setShowOrderPopup(false);
+          setProgress(0);
+          setSelectedProduct(null);
+          toast.error(t('orders:notifications.noVipOrdersFound', 'Không tìm thấy đơn hàng trong cấp độ VIP của bạn'), {
+            description: t('orders:notifications.noVipOrdersFoundDetail', 'Hiện tại không có đơn hàng phù hợp với cấp độ VIP của bạn. Vui lòng liên hệ CSKH hoặc thử lại sau.'),
+            duration: 5000,
+          });
+          return;
+        }
 
         // 🔒 Check if user is at freeze threshold
         // Use FRESH data from API, not stale local state

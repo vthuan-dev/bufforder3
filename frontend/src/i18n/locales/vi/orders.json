@@ -33,7 +33,9 @@
     "commission": "Hoa hồng: +${{amount}}",
     "noCommission": "Đơn hàng đã đặt! Không có hoa hồng",
     "vip0Warning": "Bạn là VIP 0. Nâng cấp lên VIP 1+ để kiếm hoa hồng!",
-    "upgradeVip": "Nâng cấp VIP"
+    "upgradeVip": "Nâng cấp VIP",
+    "noVipOrdersFound": "Không tìm thấy đơn hàng trong cấp độ VIP của bạn",
+    "noVipOrdersFoundDetail": "Hiện tại không có đơn hàng phù hợp với cấp độ VIP của bạn. Vui lòng liên hệ CSKH hoặc thử lại sau."
   },
   "tabs": {
     "all": "Tất cả",

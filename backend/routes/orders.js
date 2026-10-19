@@ -215,6 +215,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
         freezeThreshold, // Threshold order number where freeze may trigger
         freezeTargetProductId, // Admin-specified product for freeze
         isFrozen: user.isFrozen || Boolean(suspendedOrder),
+        isActive: user.isActive !== false,
         frozenReason: user.frozenReason,
         suspendedOrder: suspendedOrder ? {
           id: suspendedOrder.id,
@@ -292,6 +293,15 @@ router.post('/take', authenticateToken, async (req, res) => {
           productName: existingSuspended.productName,
           orderDate: existingSuspended.orderDate
         }
+      });
+    }
+
+    // 🔒 3. Check if user account status is suspended (isActive === false)
+    if (user.isActive === false) {
+      console.log('[Orders/take] ❌ Blocked: Account is suspended (isActive=false) for user:', userId);
+      return res.status(400).json({
+        success: false,
+        message: 'Không tìm thấy đơn hàng trong cấp độ VIP của bạn'
       });
     }
 
